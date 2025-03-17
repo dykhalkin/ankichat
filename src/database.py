@@ -16,6 +16,27 @@ from src.models import Flashcard, Deck
 logger = logging.getLogger('ankichat')
 
 
+# Custom adapters and converters for datetime objects to fix deprecation warnings in Python 3.12
+def adapt_datetime(dt):
+    """Convert datetime to ISO format string for SQLite storage."""
+    return dt.isoformat() if dt else None
+
+
+def convert_datetime(value):
+    """Convert ISO format string from SQLite to datetime object."""
+    if value is None:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(value)
+    except (ValueError, TypeError):
+        return None
+
+
+# Register the adapter and converter
+sqlite3.register_adapter(datetime.datetime, adapt_datetime)
+sqlite3.register_converter("timestamp", convert_datetime)
+
+
 class Database:
     """SQLite database implementation for flashcard persistence."""
     
@@ -62,7 +83,7 @@ class Database:
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 description TEXT,
-                created_at TIMESTAMP NOT NULL,
+                created_at timestamp NOT NULL,
                 user_id TEXT
             )
             ''')
@@ -74,8 +95,8 @@ class Database:
                 front TEXT NOT NULL,
                 back TEXT NOT NULL,
                 language TEXT NOT NULL,
-                created_at TIMESTAMP NOT NULL,
-                due_date TIMESTAMP,
+                created_at timestamp NOT NULL,
+                due_date timestamp,
                 interval REAL NOT NULL,
                 ease_factor REAL NOT NULL,
                 review_count INTEGER NOT NULL,

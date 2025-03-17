@@ -28,3 +28,39 @@ Now, build the foundation of the Telegram bot by creating a basic bot applicatio
 
 Make sure the bot’s main file can be executed directly and properly wires the command handler. Include comments and clear separation of concerns.
 ```
+
+Data model
+```
+Project Prompt 3:
+Develop the core data models and persistence layer for the flashcards and decks. Your tasks are:
+
+1. Define a `Flashcard` class with attributes:
+   - id, front text, back text, language, SRS metadata (e.g., review interval, ease factor)
+2. Define a `Deck` class with attributes:
+   - id, name, list of flashcards
+3. Implement CRUD operations for both Flashcard and Deck (create, read, update, delete).
+4. Use sqllite database for persistant storage
+5. Write unit tests to verify the CRUD operations and data integrity.
+
+Ensure the design is modular so that persistence can be replaced with a more robust solution later.
+```
+
+
+
+Project Prompt 4:
+Implement the flashcard creation workflow with the following requirements:
+
+1. Create a function that accepts any user text input in update for a new flashcard. Any random text input from the user should trigger a flashcard creation flow  as well as /new command
+2. Implement OpenAI API client that implement the next steps including card content creation and language detection.
+2. Using instance-based AsyncOpenAI client to  detect the inputted langugage.
+3. Generate a preview of the flashcard using placeholder content for:
+   - Definition
+   - Example sentence
+   - Pronunciation audio (TTS placeholder)
+   - Transcription (IPA/phonetic placeholder)
+4. Present the preview to the user and ask for confirmation or override.
+5. Wire this flow into the Telegram bot UI using inline buttons.
+6. Include unit tests that simulate the input and verify that the preview is generated and confirmation logic works as expected.
+
+Document the code clearly and ensure that it can be extended later.
+

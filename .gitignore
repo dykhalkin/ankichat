@@ -111,3 +111,6 @@ venv.bak/
 logs/
 *.db
 *.sqlite3
+
+# Data
+data/
