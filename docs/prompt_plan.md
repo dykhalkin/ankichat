@@ -45,8 +45,8 @@ Develop the core data models and persistence layer for the flashcards and decks.
 Ensure the design is modular so that persistence can be replaced with a more robust solution later.
 ```
 
-
-
+Flashcard creation workflow
+```
 Project Prompt 4:
 Implement the flashcard creation workflow with the following requirements:
 
@@ -63,4 +63,17 @@ Implement the flashcard creation workflow with the following requirements:
 6. Include unit tests that simulate the input and verify that the preview is generated and confirmation logic works as expected.
 
 Document the code clearly and ensure that it can be extended later.
+```
 
+Spaced Repetition Algorithm Module
+```
+Project Prompt 5:
+Build a module that implements a spaced repetition algorithm (e.g., SM-2 algorithm) for scheduling flashcard reviews. The module should:
+
+1. Accept a flashcard and user performance data (e.g., ease of recall score).
+2. Calculate the next review date or interval for the flashcard.
+3. Update the flashcard’s SRS metadata accordingly.
+4. Include comprehensive unit tests covering different performance scenarios (correct, incorrect, borderline cases).
+
+Ensure that the module is decoupled from the rest of the system for easy testing and future refinement.
+```
