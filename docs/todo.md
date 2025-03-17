@@ -93,19 +93,19 @@ This checklist outlines all the steps required to build the Telegram Anki Flashc
 
 ## 6. Flashcard Training Modes & Review Session Handling
 
-- [ ] **Training Modes Implementation**
-  - [ ] Standard Flashcard Review: Display front text and prompt recall of the back.
-  - [ ] Fill-in-the-Blank: Remove key parts of the answer.
-  - [ ] Multiple-Choice: Generate distractors alongside the correct answer.
+- [x] **Training Modes Implementation**
+  - [x] Standard Flashcard Review: Display front text and prompt recall of the back.
+  - [x] Fill-in-the-Blank: Remove key parts of the answer.
+  - [x] Multiple-Choice: Generate distractors alongside the correct answer.
   - [ ] Listening-Based Exercise: Simulate a listening test using TTS placeholders.
 - [ ] **Error Handling**
-  - [ ] Provide explanations for incorrect answers in a special learning mode.
-  - [ ] Update SRS metadata to increase review frequency for incorrect responses.
-- [ ] **Session Management**
-  - [ ] Dynamically set session length based on due flashcards.
-  - [ ] Allow users to end the session early.
-- [ ] **Testing**
-  - [ ] Write unit tests for each training mode to verify functionality and SRS updates.
+  - [x] ~~Provide explanations for incorrect answers in a special learning mode.~~ (LEARNING mode removed)
+  - [x] Update SRS metadata to increase review frequency for incorrect responses.
+- [x] **Session Management**
+  - [x] Dynamically set session length based on due flashcards.
+  - [x] Allow users to end the session early.
+- [x] **Testing**
+  - [x] Write unit tests for each training mode to verify functionality and SRS updates.
 
 ---
 
@@ -174,6 +174,30 @@ This checklist outlines all the steps required to build the Telegram Anki Flashc
 - [ ] **Code Cleanup & Documentation**
   - [ ] Refactor orphaned or unintegrated code.
   - [ ] Write final documentation summarizing the system structure and future extension guidelines.
+  - [ ] Fix all mypy type errors throughout the codebase
+
+---
+
+## 11. Improvement Tasks from Debugging
+
+- [x] Fix async implementation issues
+  - [x] Correct awaiting of async method calls throughout codebase
+  - [x] Fix async detection logic to check both method attributes and class types
+  - [x] Fix coroutine handling in all service layers
+- [x] Fix LLM client integration
+  - [x] Properly initialize LLM client in ReviewService.start_session
+  - [x] Add graceful degradation when LLM is unavailable
+  - [x] Fix markdown parsing errors in messages
+- [x] Training mode improvements
+  - [x] Fix fill-in-blank mode async issues
+  - [x] Remove LEARNING training mode completely
+  - [x] Prevent random text inputs from being processed as commands
+  - [x] Fix conversation handler priorities in bot.py
+- [ ] Future improvements  
+  - [ ] Enhance fill-in-blank mode with better LLM prompts
+  - [ ] Add more sophisticated similarity checking for evaluating user answers
+  - [ ] Improve error recovery when LLM is temporarily unavailable
+  - [ ] Add specific unit tests for edge cases in fill-in-blank mode
 
 ---
 

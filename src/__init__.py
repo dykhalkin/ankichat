@@ -1,0 +1,3 @@
+"""
+AnkiChat application package.
+"""

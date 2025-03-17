@@ -20,3 +20,22 @@
 - Organized in layers: models → repository → services → handlers → bot
 - Use dataclasses for data models, with sensible defaults
 - Keep business logic in service layer, data access in repository layer
+
+## Async Implementation Guidelines
+- Always await async methods - check both method attributes and class types
+- Use proper coroutine handling throughout the codebase
+- Review service methods are all async: start_session, get_next_card, process_answer, end_session
+- LLM methods are async (language detection, content generation, fill-in-blank generation)
+
+## Training Modes
+- Available modes: STANDARD, FILL_IN_BLANK, MULTIPLE_CHOICE
+- LEARNING mode has been completely removed 
+- Strategy pattern used for different trainer implementations:
+  - StandardTrainer: Basic flashcard review
+  - FillInBlankTrainer: Fill-in-the-blank exercises (requires LLM)
+  - MultipleChoiceTrainer: Multiple choice questions
+
+## LLM Usage
+- LLM client is initialized in ReviewService.start_session when needed
+- Handle graceful degradation when LLM is unavailable
+- Properly await all LLM-related methods (especially generate_fill_in_blank)

@@ -19,7 +19,7 @@ if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY environment variable is not set")
 
 # OpenAI Model Settings
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 # Database Settings
 DATABASE_PATH = os.getenv("DATABASE_PATH", "data/ankichat.db")

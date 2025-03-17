@@ -77,3 +77,23 @@ Build a module that implements a spaced repetition algorithm (e.g., SM-2 algorit
 
 Ensure that the module is decoupled from the rest of the system for easy testing and future refinement.
 ```
+
+Training modes and review session handling
+```
+Project Prompt 6:
+Implement the flashcard training modes and review session handling. Your objectives are:
+
+1. Create functions or classes for the following training modes:
+   - Standard flashcard review: show front, expect the user to recall the back.
+   - Fill-in-the-blank: remove key parts of the answer. Use LLM to generate the blanked content and front term to be filled in.
+   - Multiple-choice quizzes: generate distractors along with the correct answer.
+2. Incorporate error handling:
+   - Increase the review frequency for incorrect answers.
+3. Design the review session to:
+   - Dynamically determine session length based on due flashcards.
+   - Allow the user to end the session early.
+4. Write unit tests for each training mode ensuring correct functionality and SRS updates.
+
+Wire the training modes into the Telegram bot commands, ensuring that users can choose which mode to use.
+```
+

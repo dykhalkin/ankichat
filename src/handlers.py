@@ -9,27 +9,42 @@ from typing import Dict, Any, Optional, cast, Union, Coroutine
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from telegram.ext import CallbackContext, ConversationHandler
 
-from src.services import FlashcardService, DeckService
-from src.models import Deck
+from src.services import FlashcardService, DeckService, ReviewService
+from src.models import Deck, Flashcard
 from src.llm import LLMClient
 from src.repository import SQLiteDeckRepository, SQLiteFlashcardRepository
 from src.database import Database
+from src.training import (
+    TrainingMode,
+    get_training_mode_explanation,
+    FillInBlankTrainer,
+)
+from src.srs import RecallScore
 
-logger = logging.getLogger('ankichat')
+logger = logging.getLogger("ankichat")
 
 # Conversation states
 (
     AWAITING_CARD_TEXT,
     AWAITING_CONFIRMATION,
     AWAITING_DECK_SELECTION,
-    AWAITING_EDIT
-) = range(4)
+    AWAITING_EDIT,
+    AWAITING_REVIEW_DECK_SELECTION,
+    AWAITING_TRAINING_MODE_SELECTION,
+    AWAITING_ANSWER,
+    REVIEWING_CARD,
+) = range(8)
 
 # Callback data prefixes
 CONFIRM_PREFIX = "confirm_"
 EDIT_PREFIX = "edit_"
 DECK_PREFIX = "deck_"
 CANCEL_PREFIX = "cancel_"
+MODE_PREFIX = "mode_"
+ANSWER_PREFIX = "answer_"
+RATE_PREFIX = "rate_"
+CONTINUE_PREFIX = "continue_"
+END_PREFIX = "end_"
 
 # Direct text conversation map
 # This is used to store conversation state for direct text input
@@ -37,20 +52,20 @@ CANCEL_PREFIX = "cancel_"
 DIRECT_CONVERSATIONS = {}
 
 # Direct conversation state constants
-DIRECT_AWAITING_CONFIRMATION = 'awaiting_confirmation'
-DIRECT_AWAITING_DECK_SELECTION = 'awaiting_deck_selection'
+DIRECT_AWAITING_CONFIRMATION = "awaiting_confirmation"
+DIRECT_AWAITING_DECK_SELECTION = "awaiting_deck_selection"
 
 
 async def start_command(update: Update, context: CallbackContext) -> None:
     """
     Handle the /start command.
-    
+
     This is sent when a user starts a conversation with the bot.
     Sends a welcome message explaining the bot's functionality.
     """
     user = update.effective_user
     logger.info(f"User {user.id} ({user.username}) started the bot")
-    
+
     welcome_message = (
         f"👋 Hello, {user.first_name}!\n\n"
         f"Welcome to the Anki Flashcards Bot. This bot helps you create and review "
@@ -63,13 +78,14 @@ async def start_command(update: Update, context: CallbackContext) -> None:
         f"You can also simply send any word or phrase to create a flashcard right away!\n\n"
         f"Let's start learning together! 🚀"
     )
-    
+
     await update.message.reply_text(welcome_message)
-    
+
+
 async def help_command(update: Update, context: CallbackContext) -> None:
     """Handle the /help command."""
     logger.info(f"User {update.effective_user.id} requested help")
-    
+
     help_text = (
         "📚 *AnkiChat Bot Help*\n\n"
         "*Available Commands:*\n"
@@ -78,86 +94,109 @@ async def help_command(update: Update, context: CallbackContext) -> None:
         "• /review - Start reviewing due cards\n"
         "• /stats - View your learning statistics\n"
         "• /help - Show this help message\n\n"
-        
         "*Creating Flashcards:*\n"
         "There are two ways to create flashcards:\n"
         "1. Just send any word or phrase directly to the bot\n"
         "2. Use /new and follow the prompts\n\n"
-        
+        "*Training Modes:*\n"
+        "When reviewing, you can choose from four training modes:\n"
+        "• Standard - Show the front, rate how well you recalled the answer\n"
+        "• Fill-in-the-blank - Key information is blanked out for you to complete\n"
+        "• Multiple choice - Choose the correct answer from options\n"
+        "• Learning - Get explanations for incorrect answers\n\n"
         "*Reviewing Cards:*\n"
         "Use /review to start a review session. For each card, you'll see the front side "
         "and need to recall the answer. After viewing the answer, rate how well you remembered it.\n\n"
-        
         "*Spaced Repetition:*\n"
         "Cards will reappear for review based on how well you remembered them - "
         "the better you know a card, the longer until you see it again."
     )
-    
+
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
 
 # Flashcard creation handlers
 
+
 async def new_card_command(update: Update, context: CallbackContext) -> int:
     """
     Start the flashcard creation workflow.
-    
+
     Args:
         update: The update object
         context: The context object
-        
+
     Returns:
         The next conversation state
     """
     user = update.effective_user
     logger.info(f"User {user.id} started creating a new flashcard")
-    
+
     await update.message.reply_text(
         "Please enter the word or phrase you want to create a flashcard for:"
     )
-    
+
     return AWAITING_CARD_TEXT
 
 
 async def direct_text_handler(update: Update, context: CallbackContext) -> None:
     """
     Handle direct text messages outside of a conversation flow.
-    
+
     This handler is triggered when a user sends any text message directly to the bot
     that isn't part of an ongoing conversation and isn't a command.
     It processes the text as input for a new flashcard.
-    
+
     Args:
         update: The update object
         context: The context object
     """
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
+    text = update.message.text
+    
+    logger.info(f"Direct text handler triggered for user {user_id} with text: {text[:20]}...")
+
+    # CRITICAL: Check if the user has an active review session
+    # If so, this message should have been handled by the review conversation handler
+    # We need this extra check in case the conversation handler priorities fail
+    from src.services import ACTIVE_SESSIONS
+    if user_id in ACTIVE_SESSIONS:
+        logger.warning(f"User {user_id} has an active review session but message reached direct_text_handler. Ignoring.")
+        await update.message.reply_text(
+            "It looks like you're in the middle of a review session. "
+            "This message will be ignored. If you're trying to answer a flashcard, "
+            "please respond directly to the most recent flashcard message. "
+            "You can use /cancel to end your current session."
+        )
+        return
     
     # Process the text just like the regular card creation flow
     await _process_flashcard_input(update, context)
-    
+
     # Store in our direct conversations map to handle callbacks properly
     DIRECT_CONVERSATIONS[chat_id] = DIRECT_AWAITING_CONFIRMATION
-    logger.info(f"User {user_id} started direct flashcard creation, state: {DIRECT_CONVERSATIONS[chat_id]}")
+    logger.info(
+        f"User {user_id} started direct flashcard creation, state: {DIRECT_CONVERSATIONS[chat_id]}"
+    )
 
 
 async def process_card_text(update: Update, context: CallbackContext) -> int:
     """
     Process the text entered by the user after the /new command.
-    
+
     This handler is part of the conversation flow started by /new command.
-    
+
     Args:
         update: The update object
         context: The context object
-        
+
     Returns:
         The next conversation state
     """
     # Use the shared processing function
     await _process_flashcard_input(update, context)
-    
+
     # Return the next state for the conversation handler
     return AWAITING_CONFIRMATION
 
@@ -165,54 +204,58 @@ async def process_card_text(update: Update, context: CallbackContext) -> int:
 async def _process_flashcard_input(update: Update, context: CallbackContext) -> None:
     """
     Shared function to process text input for flashcard creation.
-    
+
     Used by both the conversation handler and direct text handler.
-    
+
     Args:
         update: The update object
         context: The context object
     """
     user = update.effective_user
     text = update.message.text
-    
+
     # Send a processing message
     processing_message = await update.message.reply_text(
         "Processing your request... This may take a moment."
     )
-    
+
     # Get the services
     flashcard_service = _get_flashcard_service()
-    
+
     try:
         # Process the text and generate a preview
         preview = await flashcard_service.process_new_card_text(text, str(user.id))
-        
+
         # Store the preview in the context for later use
         context.user_data["preview"] = preview
-        
+
         # Format the preview message
         message_text = flashcard_service.format_preview_message(preview)
-        
+
         # Create inline keyboard
         keyboard = [
             [
-                InlineKeyboardButton("✅ Save", callback_data=f"{CONFIRM_PREFIX}{preview['preview_id']}"),
-                InlineKeyboardButton("✏️ Edit", callback_data=f"{EDIT_PREFIX}{preview['preview_id']}")
+                InlineKeyboardButton(
+                    "✅ Save", callback_data=f"{CONFIRM_PREFIX}{preview['preview_id']}"
+                ),
+                InlineKeyboardButton(
+                    "✏️ Edit", callback_data=f"{EDIT_PREFIX}{preview['preview_id']}"
+                ),
             ],
             [
-                InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}{preview['preview_id']}")
-            ]
+                InlineKeyboardButton(
+                    "❌ Cancel", callback_data=f"{CANCEL_PREFIX}{preview['preview_id']}"
+                )
+            ],
         ]
-        
+
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         # Edit the processing message with the preview
         await processing_message.edit_text(
-            message_text,
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
+            message_text, reply_markup=reply_markup, parse_mode="Markdown"
         )
-        
+
     except Exception as e:
         logger.error(f"Error processing card text: {e}")
         await processing_message.edit_text(
@@ -220,30 +263,32 @@ async def _process_flashcard_input(update: Update, context: CallbackContext) -> 
         )
 
 
-async def handle_callback_for_direct_input(update: Update, context: CallbackContext) -> Optional[int]:
+async def handle_callback_for_direct_input(
+    update: Update, context: CallbackContext
+) -> Optional[int]:
     """
     Router function to handle callbacks from direct text input.
-    
+
     This function determines the current state of the direct conversation
     and routes the callback to the appropriate handler.
-    
+
     Args:
         update: The update object
         context: The context object
-        
+
     Returns:
         None as this is only used for direct conversations outside the ConversationHandler
     """
     chat_id = str(update.effective_chat.id)
-    
+
     # Check if this is a direct text conversation
     if chat_id not in DIRECT_CONVERSATIONS:
         return None
-    
+
     # Get the current state
     current_state = DIRECT_CONVERSATIONS[chat_id]
     logger.info(f"Handling direct callback for chat {chat_id} in state {current_state}")
-    
+
     # Route to the appropriate handler based on state
     if current_state == DIRECT_AWAITING_CONFIRMATION:
         await handle_preview_callback(update, context)
@@ -256,261 +301,273 @@ async def handle_callback_for_direct_input(update: Update, context: CallbackCont
         await query.answer()
         await query.edit_message_text("Sorry, something went wrong. Please try again.")
         del DIRECT_CONVERSATIONS[chat_id]
-    
+
     return None
 
 
 async def handle_preview_callback(update: Update, context: CallbackContext) -> int:
     """
     Handle callbacks from the preview message's inline keyboard.
-    
+
     This handler handles callbacks from both the conversation flow
     and direct text messages.
-    
+
     Args:
         update: The update object
         context: The context object
-        
+
     Returns:
         The next conversation state
     """
     query = cast(CallbackQuery, update.callback_query)
     await query.answer()
-    
+
     callback_data = query.data
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
-    
+
     # Only process callbacks that start with our prefixes
-    if not (callback_data.startswith(CONFIRM_PREFIX) or
-            callback_data.startswith(EDIT_PREFIX) or
-            callback_data.startswith(CANCEL_PREFIX)):
+    if not (
+        callback_data.startswith(CONFIRM_PREFIX)
+        or callback_data.startswith(EDIT_PREFIX)
+        or callback_data.startswith(CANCEL_PREFIX)
+    ):
         # This might be a callback for a different handler
         return None
-    
+
     # Check if this is part of a direct text conversation
     is_direct = chat_id in DIRECT_CONVERSATIONS
-    
+
     # Log the callback data and conversation state
     logger.info(f"Handling preview callback: {callback_data}, direct: {is_direct}")
     if is_direct:
         logger.info(f"Direct conversation state: {DIRECT_CONVERSATIONS[chat_id]}")
-    
+
     # Check if the user wants to cancel
     if callback_data.startswith(CANCEL_PREFIX):
         await query.edit_message_text("Flashcard creation cancelled.")
-        
+
         # Clean up direct conversation state if needed
         if is_direct:
             del DIRECT_CONVERSATIONS[chat_id]
-            
+
         return ConversationHandler.END
-    
+
     # Check if the user wants to confirm
     if callback_data.startswith(CONFIRM_PREFIX):
-        preview_id = callback_data[len(CONFIRM_PREFIX):]
-        
+        preview_id = callback_data[len(CONFIRM_PREFIX) :]
+
         # Get user's decks
         deck_service = _get_deck_service()
         decks = deck_service.get_user_decks(user_id)
-        
+
         if not decks:
             # Create a default deck if user doesn't have any
             default_deck = deck_service.create_deck(
                 name="My First Deck",
                 user_id=user_id,
-                description="Default deck created automatically"
+                description="Default deck created automatically",
             )
             decks = [default_deck]
-        
+
         # Store the preview ID for later
         context.user_data["confirmed_preview_id"] = preview_id
-        
+
         # Create inline keyboard with decks
         keyboard = []
         for deck in decks:
-            keyboard.append([
-                InlineKeyboardButton(deck.name, callback_data=f"{DECK_PREFIX}{deck.id}")
-            ])
-        
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        deck.name, callback_data=f"{DECK_PREFIX}{deck.id}"
+                    )
+                ]
+            )
+
         # Add a cancel button
-        keyboard.append([
-            InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}{preview_id}")
-        ])
-        
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    "❌ Cancel", callback_data=f"{CANCEL_PREFIX}{preview_id}"
+                )
+            ]
+        )
+
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         # Ask user to select a deck
         await query.edit_message_text(
-            "Please select a deck for this flashcard:",
-            reply_markup=reply_markup
+            "Please select a deck for this flashcard:", reply_markup=reply_markup
         )
-        
+
         # Update the state for direct conversations
         if is_direct:
             DIRECT_CONVERSATIONS[chat_id] = DIRECT_AWAITING_DECK_SELECTION
-            logger.info(f"Updated direct conversation state to {DIRECT_AWAITING_DECK_SELECTION}")
-            
+            logger.info(
+                f"Updated direct conversation state to {DIRECT_AWAITING_DECK_SELECTION}"
+            )
+
         return AWAITING_DECK_SELECTION
-    
+
     # Check if the user wants to edit
     if callback_data.startswith(EDIT_PREFIX):
-        preview_id = callback_data[len(EDIT_PREFIX):]
-        
+        preview_id = callback_data[len(EDIT_PREFIX) :]
+
         # Tell the user editing is coming soon
         await query.edit_message_text(
             "Editing functionality will be available in a future update. "
             "Please cancel and try again if you need to make changes."
         )
-        
+
         # Clean up direct conversation state if needed
         if is_direct:
             del DIRECT_CONVERSATIONS[chat_id]
-            
+
         return ConversationHandler.END
-    
+
     # Unknown callback data (but starts with our prefix)
     logger.warning(f"Unknown callback data: {callback_data}")
     await query.edit_message_text("Sorry, something went wrong. Please try again.")
-    
+
     # Clean up direct conversation state if needed
     if is_direct:
         del DIRECT_CONVERSATIONS[chat_id]
-        
+
     return ConversationHandler.END
 
 
 async def handle_deck_selection(update: Update, context: CallbackContext) -> int:
     """
     Handle deck selection for the new flashcard.
-    
+
     This handler handles deck selection from both the conversation flow
     and direct text messages.
-    
+
     Args:
         update: The update object
         context: The context object
-        
+
     Returns:
         The next conversation state
     """
     query = cast(CallbackQuery, update.callback_query)
     await query.answer()
-    
+
     callback_data = query.data
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
-    
+
     # Only process callbacks that start with our prefixes
-    if not (callback_data.startswith(DECK_PREFIX) or
-            callback_data.startswith(CANCEL_PREFIX)):
+    if not (
+        callback_data.startswith(DECK_PREFIX) or callback_data.startswith(CANCEL_PREFIX)
+    ):
         # This might be a callback for a different handler
         return None
-    
+
     # Check if this is part of a direct text conversation
     is_direct = chat_id in DIRECT_CONVERSATIONS
-    
+
     # Log the callback data and conversation state
-    logger.info(f"Handling deck selection callback: {callback_data}, direct: {is_direct}")
+    logger.info(
+        f"Handling deck selection callback: {callback_data}, direct: {is_direct}"
+    )
     if is_direct:
         logger.info(f"Direct conversation state: {DIRECT_CONVERSATIONS[chat_id]}")
-    
+
     # Check if the user wants to cancel
     if callback_data.startswith(CANCEL_PREFIX):
         await query.edit_message_text("Flashcard creation cancelled.")
-        
+
         # Clean up direct conversation state if needed
         if is_direct:
             del DIRECT_CONVERSATIONS[chat_id]
-            
+
         return ConversationHandler.END
-    
+
     # Check if the user selected a deck
     if callback_data.startswith(DECK_PREFIX):
-        deck_id = callback_data[len(DECK_PREFIX):]
+        deck_id = callback_data[len(DECK_PREFIX) :]
         preview_id = context.user_data.get("confirmed_preview_id")
-        
+
         if not preview_id:
             logger.error("No preview ID found in user data")
             await query.edit_message_text(
                 "Sorry, something went wrong. Please try again."
             )
-            
+
             # Clean up direct conversation state if needed
             if is_direct:
                 del DIRECT_CONVERSATIONS[chat_id]
-                
+
             return ConversationHandler.END
-        
+
         # Create the flashcard
         flashcard_service = _get_flashcard_service()
-        
+
         try:
             # In a real implementation, you would retrieve the preview from storage
             preview = context.user_data.get("preview", {})
-            
+
             # Create the flashcard using the preview content
             content = preview.get("content", {})
-            
+
             # Create a properly formatted flashcard from the preview content
             user_edits = {
                 "front": content.get("word", ""),
                 "back": _format_card_back(content),
-                "language": content.get("language_code", "en")
+                "language": content.get("language_code", "en"),
             }
-            
+
             flashcard = await flashcard_service.create_flashcard_from_preview(
-                preview_id=preview_id,
-                deck_id=deck_id,
-                user_edits=user_edits
+                preview_id=preview_id, deck_id=deck_id, user_edits=user_edits
             )
-            
+
             # Notify the user
             await query.edit_message_text(
                 f"✅ Flashcard created successfully!\n\n"
                 f"*Front:* {flashcard.front}\n"
                 f"*Added to deck:* {deck_id}\n\n"
                 f"Use /review to start practicing.",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
             )
-            
+
             # Clean up direct conversation state if needed
             if is_direct:
                 del DIRECT_CONVERSATIONS[chat_id]
-                
+
             return ConversationHandler.END
-            
+
         except Exception as e:
             logger.error(f"Error creating flashcard: {e}")
             await query.edit_message_text(
                 "Sorry, there was an error creating your flashcard. Please try again."
             )
-            
+
             # Clean up direct conversation state if needed
             if is_direct:
                 del DIRECT_CONVERSATIONS[chat_id]
-                
+
             return ConversationHandler.END
-    
+
     # Unknown callback data (but starts with our prefix)
     logger.warning(f"Unknown callback data: {callback_data}")
     await query.edit_message_text("Sorry, something went wrong. Please try again.")
-    
+
     # Clean up direct conversation state if needed
     if is_direct:
         del DIRECT_CONVERSATIONS[chat_id]
-        
+
     return ConversationHandler.END
 
 
 async def cancel_command(update: Update, context: CallbackContext) -> int:
     """
     Cancel the current conversation.
-    
+
     Args:
         update: The update object
         context: The context object
-        
+
     Returns:
         ConversationHandler.END
     """
@@ -519,7 +576,703 @@ async def cancel_command(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 
+# Review session handlers
+
+
+async def review_command(update: Update, context: CallbackContext) -> int:
+    """
+    Start the flashcard review workflow.
+
+    Args:
+        update: The update object
+        context: The context object
+
+    Returns:
+        The next conversation state
+    """
+    user = update.effective_user
+    user_id = str(user.id)
+    logger.info(f"User {user_id} started a review session")
+
+    # Check if user already has an active session
+    review_service = _get_review_service()
+    active_session = user_id in review_service.ACTIVE_SESSIONS
+
+    if active_session:
+        # Ask if user wants to continue existing session or start a new one
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "Continue", callback_data=f"{CONTINUE_PREFIX}session"
+                ),
+                InlineKeyboardButton(
+                    "End current session", callback_data=f"{END_PREFIX}session"
+                ),
+            ]
+        ]
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            "You already have an active review session. Do you want to continue it or end it and start a new one?",
+            reply_markup=reply_markup,
+        )
+
+        return REVIEWING_CARD
+
+    # Get user's decks to review
+    deck_service = _get_deck_service()
+    decks = deck_service.get_user_decks(user_id)
+
+    if not decks:
+        # Create a default deck if user doesn't have any
+        default_deck = deck_service.create_deck(
+            name="My First Deck",
+            user_id=user_id,
+            description="Default deck created automatically",
+        )
+        decks = [default_deck]
+
+    # Create inline keyboard with decks
+    keyboard = []
+    for deck in decks:
+        keyboard.append(
+            [InlineKeyboardButton(deck.name, callback_data=f"{DECK_PREFIX}{deck.id}")]
+        )
+
+    # Add a cancel button
+    keyboard.append(
+        [InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}review")]
+    )
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    # Ask user to select a deck
+    await update.message.reply_text(
+        "Please select a deck to review:", reply_markup=reply_markup
+    )
+
+    return AWAITING_REVIEW_DECK_SELECTION
+
+
+async def handle_review_deck_selection(update: Update, context: CallbackContext) -> int:
+    """
+    Handle deck selection for review.
+
+    Args:
+        update: The update object
+        context: The context object
+
+    Returns:
+        The next conversation state
+    """
+    query = cast(CallbackQuery, update.callback_query)
+    await query.answer()
+
+    callback_data = query.data
+    user_id = str(update.effective_user.id)
+
+    # Check if the user wants to cancel
+    if callback_data.startswith(CANCEL_PREFIX):
+        await query.edit_message_text("Review session cancelled.")
+        return ConversationHandler.END
+
+    # Check if the user selected a deck
+    if callback_data.startswith(DECK_PREFIX):
+        deck_id = callback_data[len(DECK_PREFIX) :]
+
+        # Store the selected deck_id
+        context.user_data["selected_deck_id"] = deck_id
+
+        # Present training mode options
+        keyboard = []
+
+        # Create buttons for each training mode
+        for mode in TrainingMode:
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        mode.value.replace("_", " ").title(),
+                        callback_data=f"{MODE_PREFIX}{mode.value}",
+                    )
+                ]
+            )
+
+        # Add a cancel button
+        keyboard.append(
+            [InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}mode")]
+        )
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Get deck information
+        deck_service = _get_deck_service()
+        deck = deck_service.deck_repo.get(deck_id)
+        deck_name = deck.name if deck else deck_id
+
+        # Ask user to select a training mode
+        await query.edit_message_text(
+            f"You selected deck: *{deck_name}*\n\n" "Please choose a training mode:",
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+        )
+
+        return AWAITING_TRAINING_MODE_SELECTION
+
+    # Unknown callback data
+    logger.warning(f"Unknown callback data: {callback_data}")
+    await query.edit_message_text("Sorry, something went wrong. Please try again.")
+    return ConversationHandler.END
+
+
+async def handle_training_mode_selection(
+    update: Update, context: CallbackContext
+) -> int:
+    """
+    Handle training mode selection for review.
+
+    Args:
+        update: The update object
+        context: The context object
+
+    Returns:
+        The next conversation state
+    """
+    query = cast(CallbackQuery, update.callback_query)
+    await query.answer()
+
+    callback_data = query.data
+    user_id = str(update.effective_user.id)
+
+    # Check if the user wants to cancel
+    if callback_data.startswith(CANCEL_PREFIX):
+        await query.edit_message_text("Review session cancelled.")
+        return ConversationHandler.END
+
+    # Check if the user selected a training mode
+    if callback_data.startswith(MODE_PREFIX):
+        mode_value = callback_data[len(MODE_PREFIX) :]
+        training_mode = None
+
+        # Find the corresponding TrainingMode enum
+        for mode in TrainingMode:
+            if mode.value == mode_value:
+                training_mode = mode
+                break
+
+        if not training_mode:
+            logger.warning(f"Invalid training mode: {mode_value}")
+            await query.edit_message_text("Invalid training mode. Please try again.")
+            return ConversationHandler.END
+
+        # Get the selected deck
+        deck_id = context.user_data.get("selected_deck_id")
+        if not deck_id:
+            logger.error("No deck ID found in user data")
+            await query.edit_message_text(
+                "Sorry, something went wrong. Please try again."
+            )
+            return ConversationHandler.END
+
+        # Get explanation for the selected mode
+        mode_explanation = await get_training_mode_explanation(training_mode)
+
+        # Start the review session
+        review_service = _get_review_service()
+
+        try:
+            # Use the async version of start_session
+            result = await review_service.start_session(user_id, deck_id, training_mode)
+
+            if not result["success"]:
+                # No cards to review
+                await query.edit_message_text(
+                    f"{result['message']}\n\n"
+                    "Try creating more flashcards first with /new."
+                )
+                return ConversationHandler.END
+
+            # Session started successfully
+            session_info = result["session_info"]
+
+            # First, show an explanation of the selected mode
+            await query.edit_message_text(
+                f"{mode_explanation}\n\n"
+                f"You're about to review {session_info['cards_due']} cards "
+                f"from deck '{session_info['deck_name']}'.\n\n"
+                "Let's begin!",
+                parse_mode="Markdown",
+            )
+
+            # Send the first card
+            return await _send_next_card(update, context)
+
+        except Exception as e:
+            logger.error(f"Error starting review session: {e}")
+            await query.edit_message_text(
+                "Sorry, there was an error starting the review session. Please try again."
+            )
+            return ConversationHandler.END
+
+    # Unknown callback data
+    logger.warning(f"Unknown callback data: {callback_data}")
+    await query.edit_message_text("Sorry, something went wrong. Please try again.")
+    return ConversationHandler.END
+
+
+async def handle_session_continue(update: Update, context: CallbackContext) -> int:
+    """
+    Handle continuing or ending an existing session.
+
+    Args:
+        update: The update object
+        context: The context object
+
+    Returns:
+        The next conversation state
+    """
+    query = cast(CallbackQuery, update.callback_query)
+    await query.answer()
+
+    callback_data = query.data
+    user_id = str(update.effective_user.id)
+
+    if callback_data.startswith(CONTINUE_PREFIX):
+        # Continue the existing session
+        await query.edit_message_text("Continuing your review session...")
+
+        # Send the next card
+        return await _send_next_card(update, context)
+
+    elif callback_data.startswith(END_PREFIX):
+        # End the existing session
+        review_service = _get_review_service()
+        result = await review_service.end_session(user_id)
+
+        if result["success"]:
+            summary = result["summary"]
+
+            # Format the summary message
+            summary_message = (
+                "📊 •Review Session Summary•\n\n"
+                f"Cards reviewed: {summary['cards_reviewed']}\n"
+                f"Correct answers: {summary['correct_answers']}\n"
+                f"Incorrect answers: {summary['incorrect_answers']}\n"
+                f"Accuracy: {summary['accuracy']:.1%}\n"
+                f"Duration: {summary['duration_seconds'] / 60:.1f} minutes\n\n"
+                "Ready to start a new session?"
+            )
+
+            await query.edit_message_text(summary_message, parse_mode="Markdown")
+
+            # Start a new review session
+            await review_command(update, context)
+            return AWAITING_REVIEW_DECK_SELECTION
+        else:
+            await query.edit_message_text(result["message"])
+            return ConversationHandler.END
+
+    # Unknown callback data
+    logger.warning(f"Unknown callback data: {callback_data}")
+    await query.edit_message_text("Sorry, something went wrong. Please try again.")
+    return ConversationHandler.END
+
+
+async def handle_card_answer(update: Update, context: CallbackContext) -> int:
+    """
+    Handle a user's answer to a flashcard.
+
+    Args:
+        update: The update object
+        context: The context object
+
+    Returns:
+        The next conversation state
+    """
+    user_id = str(update.effective_user.id)
+    logger.info(f"Card answer handler triggered for user {user_id}")
+    
+    # Check if this was triggered by the catch-all fallback
+    if not (update.callback_query or (update.message and update.message.text)):
+        logger.warning(f"Catch-all fallback triggered for user {user_id} - ignoring")
+        await update.message.reply_text(
+            "Please provide a text answer to the flashcard. If you're trying to do something else, "
+            "you can use /cancel to end your current review session first."
+        )
+        return AWAITING_ANSWER
+    # Check if this is a direct message or a callback
+    if update.callback_query:
+        # Handle callback (for standard mode's self-rating)
+        query = cast(CallbackQuery, update.callback_query)
+        await query.answer()
+
+        callback_data = query.data
+        # User ID already defined above
+
+        # Extract the rating from callback data
+        if callback_data.startswith(RATE_PREFIX):
+            rating = callback_data[len(RATE_PREFIX) :]
+            answer = rating  # The rating is the answer
+
+            # Edit original message to show both question and answer
+            # Process the answer and get next card
+            review_service = _get_review_service()
+            result = await review_service.process_answer(user_id, answer)
+
+            if not result["success"]:
+                await query.edit_message_text(result["message"])
+                return ConversationHandler.END
+
+            # Update the message with answer feedback
+            if "correct_answer" in result:
+                feedback_message = (
+                    f"Your self-rating: {answer}\n\n"
+                    f"Cards left: {result['session_status']['cards_left']}"
+                )
+
+                await query.edit_message_text(feedback_message)
+
+            # Send the next card
+            return await _send_next_card(update, context)
+
+        elif callback_data.startswith(ANSWER_PREFIX):
+            # This is for multiple choice mode
+            selected_index = callback_data[len(ANSWER_PREFIX) :]
+            answer = selected_index
+
+            # Process the answer and get next card
+            review_service = _get_review_service()
+            result = await review_service.process_answer(user_id, answer)
+
+            if not result["success"]:
+                await query.edit_message_text(result["message"])
+                return ConversationHandler.END
+
+            # Update the message with answer feedback
+            if "correct_answer_index" in result:
+                correct_index = result["correct_answer_index"]
+                is_correct = result["is_correct"]
+
+                feedback_message = (
+                    f"Your answer: Option {answer}\n"
+                    f"Correct answer: Option {correct_index}\n\n"
+                    f"{'✅ Correct!' if is_correct else '❌ Incorrect!'}\n\n"
+                    f"Cards left: {result['session_status']['cards_left']}"
+                )
+
+                await query.edit_message_text(feedback_message)
+
+            # Send the next card
+            return await _send_next_card(update, context)
+
+        elif callback_data.startswith(END_PREFIX):
+            # End the session
+            review_service = _get_review_service()
+            result = await review_service.end_session(user_id)
+
+            if result["success"]:
+                summary = result["summary"]
+
+                # Format the summary message
+                summary_message = (
+                    "📊 *Review Session Summary*\n\n"
+                    f"Cards reviewed: {summary['cards_reviewed']}\n"
+                    f"Correct answers: {summary['correct_answers']}\n"
+                    f"Incorrect answers: {summary['incorrect_answers']}\n"
+                    f"Accuracy: {summary['accuracy']:.1%}\n"
+                    f"Duration: {summary['duration_seconds'] / 60:.1f} minutes\n\n"
+                    "Use /review to start a new session!"
+                )
+
+                await query.edit_message_text(summary_message, parse_mode="Markdown")
+
+                return ConversationHandler.END
+            else:
+                await query.edit_message_text(result["message"])
+                return ConversationHandler.END
+
+        # Unknown callback data
+        logger.warning(f"Unknown callback data: {callback_data}")
+        await query.edit_message_text("Sorry, something went wrong. Please try again.")
+        return ConversationHandler.END
+
+    else:
+        # Handle text message answer (for fill-in-blank mode)
+        # User ID already defined above
+        answer = update.message.text
+        logger.info(f"Received text answer from user {user_id}: {answer[:20]}...")
+
+        # Process the answer
+        review_service = _get_review_service()
+        result = await review_service.process_answer(user_id, answer)
+
+        if not result["success"]:
+            await update.message.reply_text(result["message"])
+            return ConversationHandler.END
+
+        # Provide feedback on the answer
+        if "is_correct" in result:
+            is_correct = result["is_correct"]
+            correct_answer = result.get("correct_answer", "") or result.get(
+                "blanked_term", ""
+            )
+
+            feedback_message = (
+                f"{'✅ Correct!' if is_correct else '❌ Incorrect!'}\n\n"
+                f"Your answer: {result.get('user_answer', '')}\n"
+                f"Correct answer: {correct_answer}\n\n"
+            )
+
+            # No more explanations since learning mode is removed
+
+            feedback_message += f"Cards left: {result['session_status']['cards_left']}"
+
+            await update.message.reply_text(feedback_message, parse_mode="Markdown")
+
+        # Send the next card
+        return await _send_next_card(update, context)
+
+
+async def _send_next_card(update: Update, context: CallbackContext) -> int:
+    """
+    Send the next card to the user.
+
+    Args:
+        update: The update object
+        context: The context object
+
+    Returns:
+        The next conversation state
+    """
+    user_id = str(update.effective_user.id)
+    logger.info(f"Sending next card to user {user_id}")
+
+    try:
+        # Get the next card - need to await as it's now an async method
+        review_service = _get_review_service()
+        card_data = await review_service.get_next_card(user_id)
+        logger.info(f"Retrieved card data: {card_data}")
+    except Exception as e:
+        # This is a critical error handler to catch any async issues
+        logger.error(f"Critical error in _send_next_card: {e}")
+        logger.exception("Full traceback:")
+
+        # Inform the user
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                "An unexpected error occurred. Please try a different training mode or contact support."
+            )
+        else:
+            await update.message.reply_text(
+                "An unexpected error occurred. Please try a different training mode or contact support."
+            )
+        return ConversationHandler.END
+
+    # Check for error mode (especially fill-in-blank without LLM)
+    if card_data and card_data.get("mode") == "error":
+        error_message = card_data.get("error", "Cannot start this mode due to an error")
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                f"Error: {error_message}\n\nPlease try a different training mode.",
+                reply_markup=None,
+            )
+        else:
+            await update.message.reply_text(
+                f"Error: {error_message}\n\nPlease try a different training mode."
+            )
+
+        # End the conversation
+        return ConversationHandler.END
+
+    if not card_data:
+        # No more cards to review
+        result = await review_service.end_session(user_id)
+
+        if result["success"]:
+            summary = result["summary"]
+
+            # Format the summary message
+            summary_message = (
+                "🎉 •Review Session Complete!•\n\n"
+                f"Cards reviewed: {summary['cards_reviewed']}\n"
+                f"Correct answers: {summary['correct_answers']}\n"
+                f"Incorrect answers: {summary['incorrect_answers']}\n"
+                f"Accuracy: {summary['accuracy']:.1%}\n"
+                f"Duration: {summary['duration_seconds'] / 60:.1f} minutes\n\n"
+                "Great job! Use /review to start a new session."
+            )
+
+            # Send the message to the right place
+            if update.callback_query:
+                await update.callback_query.edit_message_text(
+                    summary_message, parse_mode="Markdown"
+                )
+            else:
+                await update.message.reply_text(summary_message, parse_mode="Markdown")
+
+            return ConversationHandler.END
+        else:
+            message = result.get("message", "Error ending session")
+
+            if update.callback_query:
+                await update.callback_query.edit_message_text(message)
+            else:
+                await update.message.reply_text(message)
+
+            return ConversationHandler.END
+
+    # We have a card to show
+    mode = card_data["mode"]
+    front = card_data["front"]
+    progress = card_data["progress"]
+
+    # Format the message based on the training mode
+    if mode == TrainingMode.STANDARD.value:
+        # Standard mode - show front and ask user to recall
+        message = (
+            f"•Card {progress['current']}/{progress['total']}•\n\n"
+            f"{front}\n\n"
+            f"{card_data['prompt']}\n\n"
+            "After recalling, rate how well you remembered (0-5):\n"
+            "0 - Complete blackout\n"
+            "1 - Incorrect, but recognized answer\n"
+            "2 - Incorrect, but familiar\n"
+            "3 - Correct with difficulty\n"
+            "4 - Correct with some hesitation\n"
+            "5 - Perfect recall"
+        )
+
+        # Create rating buttons
+        keyboard = []
+        rating_row = []
+
+        for rating in range(6):
+            rating_row.append(
+                InlineKeyboardButton(
+                    str(rating), callback_data=f"{RATE_PREFIX}{rating}"
+                )
+            )
+
+        keyboard.append(rating_row)
+
+        # Add end session button
+        keyboard.append(
+            [InlineKeyboardButton("End Session", callback_data=f"{END_PREFIX}session")]
+        )
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Send the message
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                message, reply_markup=reply_markup, parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text(
+                message, reply_markup=reply_markup, parse_mode="Markdown"
+            )
+
+    elif mode == TrainingMode.MULTIPLE_CHOICE.value:
+        # Multiple choice mode - show front and options
+        options = card_data["options"]
+
+        message = (
+            f"•Card {progress['current']}/{progress['total']}•\n\n"
+            f"{front}\n\n"
+            f"{card_data['prompt']}\n\n"
+        )
+
+        # Add options
+        for i, option in enumerate(options):
+            message += f"{i}. {option}\n"
+
+        # Create option buttons
+        keyboard = []
+        option_row = []
+
+        for i in range(len(options)):
+            if i > 0 and i % 3 == 0:  # Start a new row every 3 buttons
+                keyboard.append(option_row)
+                option_row = []
+
+            option_row.append(
+                InlineKeyboardButton(str(i), callback_data=f"{ANSWER_PREFIX}{i}")
+            )
+
+        # Add the last row if not empty
+        if option_row:
+            keyboard.append(option_row)
+
+        # Add end session button
+        keyboard.append(
+            [InlineKeyboardButton("End Session", callback_data=f"{END_PREFIX}session")]
+        )
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Send the message
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                message, reply_markup=reply_markup, parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text(
+                message, reply_markup=reply_markup, parse_mode="Markdown"
+            )
+
+    elif mode == TrainingMode.FILL_IN_BLANK.value:
+        # Fill-in-blank mode - show front and blanked content
+        blanked_content = card_data["blanked_content"]
+
+        message = (
+            f"•Card {progress['current']}/{progress['total']}•\n\n"
+            f"{blanked_content}\n\n"
+            f"{card_data['prompt']}"
+        )
+
+        # No keyboard or reply markup for text input mode
+        reply_markup = None
+
+        # Send the message
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                message, reply_markup=reply_markup, parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text(
+                message, reply_markup=reply_markup, parse_mode="Markdown"
+            )
+
+    else:  # Other modes
+        # Handle any other modes
+        message = (
+            f"•Card {progress['current']}/{progress['total']}•\n\n"
+            f"{front}\n\n"
+            f"{card_data['prompt']}"
+        )
+
+        # Add end session button
+        keyboard = [
+            [InlineKeyboardButton("End Session", callback_data=f"{END_PREFIX}session")]
+        ]
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Send the message
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                message, reply_markup=reply_markup, parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text(
+                message, reply_markup=reply_markup, parse_mode="Markdown"
+            )
+
+    return AWAITING_ANSWER
+
+
 # Helper functions
+
 
 def _get_flashcard_service() -> FlashcardService:
     """Create and return a FlashcardService instance."""
@@ -527,7 +1280,7 @@ def _get_flashcard_service() -> FlashcardService:
     flashcard_repo = SQLiteFlashcardRepository(db)
     deck_repo = SQLiteDeckRepository(db)
     llm_client = LLMClient()
-    
+
     return FlashcardService(flashcard_repo, deck_repo, llm_client)
 
 
@@ -535,8 +1288,18 @@ def _get_deck_service() -> DeckService:
     """Create and return a DeckService instance."""
     db = Database()
     deck_repo = SQLiteDeckRepository(db)
-    
+
     return DeckService(deck_repo)
+
+
+def _get_review_service() -> ReviewService:
+    """Create and return a ReviewService instance."""
+    db = Database()
+    deck_repo = SQLiteDeckRepository(db)
+    flashcard_repo = SQLiteFlashcardRepository(db)
+    llm_client = LLMClient()
+
+    return ReviewService(deck_repo, flashcard_repo, llm_client)
 
 
 def _format_card_back(content: Dict[str, Any]) -> str:
@@ -547,9 +1310,9 @@ def _format_card_back(content: Dict[str, Any]) -> str:
         f"*Pronunciation:* {content.get('pronunciation_guide', 'N/A')}\n"
         f"*Part of Speech:* {content.get('part_of_speech', 'N/A')}\n\n"
     )
-    
-    notes = content.get('notes')
+
+    notes = content.get("notes")
     if notes:
         back += f"*Notes:* {notes}\n"
-    
+
     return back
