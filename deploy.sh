@@ -41,15 +41,6 @@ if [[ $EUID -ne 0 ]]; then
    error "This script must be run as root"
 fi
 
-# Create application directory if it doesn't exist
-log "Setting up application directory at $APP_DIR"
-if [ ! -d "$APP_DIR" ]; then
-    mkdir -p "$APP_DIR"
-    log "Created application directory"
-else
-    log "Application directory already exists"
-fi
-
 # Create log directory if it doesn't exist
 log "Setting up log directory at $LOG_DIR"
 if [ ! -d "$LOG_DIR" ]; then
@@ -60,26 +51,6 @@ if [ ! -d "$LOG_DIR" ]; then
     chmod -R 755 "$LOG_DIR"
 else
     log "Log directory already exists"
-fi
-
-# Deploy the application code
-log "Deploying application code"
-# If we're running from a cloned repo, copy the files
-if [ -f "./src/main.py" ]; then
-    log "Copying application files from current directory"
-    rsync -av --exclude 'venv' --exclude '.git' ./ "$APP_DIR/"
-# Otherwise, clone the repository
-else
-    log "Cloning repository from $REPO_URL"
-    if [ -d "$APP_DIR/.git" ]; then
-        cd "$APP_DIR"
-        git pull
-        log "Updated existing repository"
-    else
-        rm -rf "$APP_DIR"
-        git clone "$REPO_URL" "$APP_DIR"
-        log "Cloned repository"
-    fi
 fi
 
 # Setup virtual environment
@@ -104,17 +75,17 @@ if [ ! -f "$APP_DIR/.env" ]; then
 # Update these values with your actual credentials
 
 # Telegram Bot Token (required)
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
+TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
 
 # Database settings
-DB_PATH=/home/ankichat/data/ankichat.db
+DB_PATH=${DB_PATH}
 
 # Logging settings
-LOG_LEVEL=INFO
-LOG_FILE=/home/ankichat/logs/app.log
+LOG_LEVEL=${LOG_LEVEL}
+LOG_FILE=${LOG_FILE}
 
 # LLM Settings (if applicable)
-# OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_API_KEY=${OPENAI_API_KEY}
 EOF
     log "Created template .env file at $APP_DIR/.env"
     warning "Please update the .env file with your actual credentials"
