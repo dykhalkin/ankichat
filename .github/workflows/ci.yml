@@ -47,8 +47,8 @@ jobs:
 
       - name: Deploy to server
         env:
-          SERVER_HOST: ${{ secrets.DEPLOY_HOST }}
-          SERVER_USER: ${{ secrets.DEPLOY_USER }}
+          SERVER_HOST: ${{ vars.DEPLOY_HOST }}
+          SERVER_USER: ${{ vars.DEPLOY_USER }}
           APP_DIR: ${{ vars.APP_DIR }}
         run: |
           echo "Deploying project"
@@ -77,8 +77,8 @@ jobs:
       - name: Restart app
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
+          host: ${{ vars.DEPLOY_HOST }}
+          username: ${{ vars.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_KEY }}
           script_stop: true
           envs: TELEGRAM_BOT_TOKEN,DB_PATH,LOG_LEVEL,LOG_FILE,OPENAI_API_KEY,APP_DIR
