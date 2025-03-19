@@ -8,8 +8,6 @@ set -e  # Exit immediately if a command exits with a non-zero status
 set -u  # Treat unset variables as an error when substituting
 
 # Configuration Variables
-APP_NAME="ankichat"
-APP_DIR="/home/$APP_NAME"
 VENV_DIR="$APP_DIR/.venv"
 SERVICE_NAME="telegram-anki.service"
 SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"

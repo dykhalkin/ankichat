@@ -36,32 +36,58 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Deploy to production server
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.DEPLOY_HOST }}
-        username: ${{ secrets.DEPLOY_USER }}
-        key: ${{ secrets.DEPLOY_KEY }}
-        script_stop: true
-        envs: TELEGRAM_BOT_TOKEN,DB_PATH,LOG_LEVEL,LOG_FILE,OPENAI_API_KEY
-        environment: |
-          TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
-          DB_PATH=${{ secrets.DB_PATH || '/home/ankichat/data/ankichat.db' }}
-          LOG_LEVEL=${{ vars.LOG_LEVEL || 'INFO' }}
-          LOG_FILE=${{ vars.LOG_FILE || '/var/log/ankichat/app.log' }}
-          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || '' }}
-        script: |
-          # Create a temporary directory for deployment
-          TEMP_DIR=$(mktemp -d)
-          
-          # Clone the repository to the temporary directory
-          git clone https://github.com/breathman/ankichat.git $TEMP_DIR
-          
-          # Run the deployment script with environment variables
-          cd $TEMP_DIR
-          bash deploy.sh
-          
-          # Clean up
-          rm -rf $TEMP_DIR
+      - name: Checkout code
+        uses: actions/checkout@v4\
+
+      - name: Install SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.DEPLOY_KEY }}
+          known_hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+
+      - name: Deploy to server
+        env:
+          SERVER_HOST: ${{ secrets.DEPLOY_HOST }}
+          SERVER_USER: ${{ secrets.DEPLOY_USER }}
+          APP_DIR: ${{ vars.APP_DIR }}
+        run: |
+          echo "Deploying project"
+
+          # Create a temporary directory for the project
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} "mkdir -p ${{ env.APP_DIR }}_temp"
+
+          # Copy all project files to the temporary directory
+          scp -r ./* ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }}:${{ env.APP_DIR }}_temp/
+
+          # Execute remote commands to safely update the project
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << 'EOF'
+            # Backup the virtual environment and any sensitive files
+            if [ -d "${{ env.APP_DIR }}/.venv" ]; then
+              cp -r ${{ env.APP_DIR }}/.venv ${{ env.APP_DIR }}_temp/
+            fi
+
+            # Replace the old directory with the new one
+            rm -rf ${{ env.APP_DIR }}_old
+            mv ${{ env.APP_DIR }} ${{ env.APP_DIR }}_old
+            mv ${{ env.APP_DIR }}_temp ${{ env.APP_DIR }}
+
+            echo "Project files updated successfully"
+          EOF
+
+      - name: Restart app
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          script_stop: true
+          envs: TELEGRAM_BOT_TOKEN,DB_PATH,LOG_LEVEL,LOG_FILE,OPENAI_API_KEY,APP_DIR
+          environment: |
+            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+            DB_PATH=${{ secrets.DB_PATH || '/home/ankichat/data/ankichat.db' }}
+            LOG_LEVEL=${{ vars.LOG_LEVEL || 'INFO' }}
+            LOG_FILE=${{ vars.LOG_FILE || '/var/log/ankichat/app.log' }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || '' }}
+            APP_DIR=${{ vars.APP_DIR || '/home/ankichat' }}
+          script: |
+            bash deploy.sh
