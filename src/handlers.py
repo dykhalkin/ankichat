@@ -240,9 +240,9 @@ async def _process_flashcard_input(update: Update, context: CallbackContext) -> 
     user = update.effective_user
     text = update.message.text
 
-    # Send a processing message
+    # Send a processing message with a simple animation
     processing_message = await update.message.reply_text(
-        "Processing your request... This may take a moment."
+        "⏳ Creating flashcard..."
     )
 
     # Get the services
@@ -258,15 +258,17 @@ async def _process_flashcard_input(update: Update, context: CallbackContext) -> 
         # Format the preview message
         message_text = flashcard_service.format_preview_message(preview)
 
-        # Create inline keyboard
+        # Create a cleaner, more organized inline keyboard
         keyboard = [
             [
                 InlineKeyboardButton(
                     "✅ Save", callback_data=f"{CONFIRM_PREFIX}{preview['preview_id']}"
-                ),
+                )
+            ],
+            [
                 InlineKeyboardButton(
                     "✏️ Edit", callback_data=f"{EDIT_PREFIX}{preview['preview_id']}"
-                ),
+                )
             ],
             [
                 InlineKeyboardButton(
@@ -285,7 +287,7 @@ async def _process_flashcard_input(update: Update, context: CallbackContext) -> 
     except Exception as e:
         logger.error(f"Error processing card text: {e}")
         await processing_message.edit_text(
-            "Sorry, there was an error processing your request. Please try again."
+            "❌ Unable to create flashcard. Please check your input and try again."
         )
 
 
@@ -399,18 +401,23 @@ async def handle_preview_callback(update: Update, context: CallbackContext) -> i
         # Store the preview ID for later
         context.user_data["confirmed_preview_id"] = preview_id
 
-        # Create inline keyboard with decks
+        # Create inline keyboard with decks - maximum 3 decks per row for better UX
         keyboard = []
-        for deck in decks:
-            keyboard.append(
-                [
-                    InlineKeyboardButton(
-                        deck.name, callback_data=f"{DECK_PREFIX}{deck.id}"
-                    )
-                ]
+        current_row = []
+        
+        for i, deck in enumerate(decks):
+            current_row.append(
+                InlineKeyboardButton(
+                    deck.name, callback_data=f"{DECK_PREFIX}{deck.id}"
+                )
             )
-
-        # Add a cancel button
+            
+            # Start a new row after every 2 deck buttons
+            if (i + 1) % 2 == 0 or i == len(decks) - 1:
+                keyboard.append(current_row)
+                current_row = []
+        
+        # Add a cancel button in its own row
         keyboard.append(
             [
                 InlineKeyboardButton(
@@ -979,11 +986,24 @@ async def handle_card_answer(update: Update, context: CallbackContext) -> int:
                 correct_index = result["correct_answer_index"]
                 is_correct = result["is_correct"]
 
+                # Create a visual progress indicator
+                cards_left = result['session_status']['cards_left']
+                cards_total = result['session_status'].get('cards_total', cards_left + 1)
+                cards_complete = cards_total - cards_left
+                
+                # Create progress bar
+                progress_bar = "▓" * cards_complete + "░" * cards_left
+                
+                feedback_emoji = "🎯" if is_correct else "❌"
+                progress_percentage = int((cards_complete / cards_total) * 100) if cards_total > 0 else 0
+
                 feedback_message = (
+                    f"{feedback_emoji} {'Correct!' if is_correct else 'Incorrect!'}\n\n"
                     f"Your answer: Option {answer}\n"
                     f"Correct answer: Option {correct_index}\n\n"
-                    f"{'✅ Correct!' if is_correct else '❌ Incorrect!'}\n\n"
-                    f"Cards left: {result['session_status']['cards_left']}"
+                    f"Progress: {progress_percentage}% complete\n"
+                    f"{progress_bar}\n"
+                    f"{cards_complete}/{cards_total} cards reviewed"
                 )
 
                 await query.edit_message_text(feedback_message)
@@ -1000,14 +1020,21 @@ async def handle_card_answer(update: Update, context: CallbackContext) -> int:
                 summary = result["summary"]
 
                 # Format the summary message
+                # Calculate accuracy for visual representation
+                accuracy = summary['accuracy']
+                accuracy_bar = "🟩" * int(accuracy * 10) + "⬜" * (10 - int(accuracy * 10))
+                minutes = summary['duration_seconds'] / 60
+                seconds = summary['duration_seconds'] % 60
+                
                 summary_message = (
-                    "📊 *Review Session Summary*\n\n"
-                    f"Cards reviewed: {summary['cards_reviewed']}\n"
-                    f"Correct answers: {summary['correct_answers']}\n"
-                    f"Incorrect answers: {summary['incorrect_answers']}\n"
-                    f"Accuracy: {summary['accuracy']:.1%}\n"
-                    f"Duration: {summary['duration_seconds'] / 60:.1f} minutes\n\n"
-                    "Use /review to start a new session!"
+                    "🏆 *Session Complete!*\n\n"
+                    f"📊 *Stats:*\n"
+                    f"• Cards reviewed: {summary['cards_reviewed']}\n"
+                    f"• Correct: {summary['correct_answers']} | Incorrect: {summary['incorrect_answers']}\n"
+                    f"• Accuracy: {summary['accuracy']:.1%}\n"
+                    f"{accuracy_bar}\n"
+                    f"• Time: {int(minutes)}m {int(seconds)}s\n\n"
+                    "Type /review to start a new session!"
                 )
 
                 await query.edit_message_text(summary_message, parse_mode="Markdown")
@@ -1043,15 +1070,25 @@ async def handle_card_answer(update: Update, context: CallbackContext) -> int:
                 "blanked_term", ""
             )
 
+            # Create a visual progress indicator
+            cards_left = result['session_status']['cards_left']
+            cards_total = result['session_status'].get('cards_total', cards_left + 1)
+            cards_complete = cards_total - cards_left
+            
+            # Create progress bar
+            progress_bar = "▓" * cards_complete + "░" * cards_left
+            
+            feedback_emoji = "🎯" if is_correct else "❌"
+            progress_percentage = int((cards_complete / cards_total) * 100) if cards_total > 0 else 0
+
             feedback_message = (
-                f"{'✅ Correct!' if is_correct else '❌ Incorrect!'}\n\n"
+                f"{feedback_emoji} {'Correct!' if is_correct else 'Incorrect!'}\n\n"
                 f"Your answer: {result.get('user_answer', '')}\n"
                 f"Correct answer: {correct_answer}\n\n"
+                f"Progress: {progress_percentage}% complete\n"
+                f"{progress_bar}\n"
+                f"{cards_complete}/{cards_total} cards reviewed"
             )
-
-            # No more explanations since learning mode is removed
-
-            feedback_message += f"Cards left: {result['session_status']['cards_left']}"
 
             await update.message.reply_text(feedback_message, parse_mode="Markdown")
 
@@ -1154,32 +1191,43 @@ async def _send_next_card(update: Update, context: CallbackContext) -> int:
 
     # Format the message based on the training mode
     if mode == TrainingMode.STANDARD.value:
-        # Standard mode - show front and ask user to recall
+        # Standard mode - show front and ask user to recall with a progress bar
+        progress_bar = "▓" * progress['current'] + "░" * (progress['total'] - progress['current'])
+        
         message = (
-            f"•Card {progress['current']}/{progress['total']}•\n\n"
+            f"📝 *Card {progress['current']}/{progress['total']}*\n"
+            f"{progress_bar}\n\n"
             f"{front}\n\n"
             f"{card_data['prompt']}\n\n"
-            "After recalling, rate how well you remembered (0-5):\n"
-            "0 - Complete blackout\n"
-            "1 - Incorrect, but recognized answer\n"
-            "2 - Incorrect, but familiar\n"
-            "3 - Correct with difficulty\n"
-            "4 - Correct with some hesitation\n"
-            "5 - Perfect recall"
+            "Rate how well you remembered:"
         )
 
-        # Create rating buttons
+        # Create improved rating buttons with emoji indicators
+        rating_labels = [
+            "0 ❌ Complete blackout",
+            "1 😕 Recognized only",
+            "2 🤔 Familiar",
+            "3 🙂 Correct (hard)",
+            "4 😀 Correct (slight hesitation)",
+            "5 🎯 Perfect recall"
+        ]
+        
+        # Create two rows of rating buttons for better UX
         keyboard = []
-        rating_row = []
-
+        row1 = []
+        row2 = []
+        
         for rating in range(6):
-            rating_row.append(
-                InlineKeyboardButton(
-                    str(rating), callback_data=f"{RATE_PREFIX}{rating}"
-                )
+            button = InlineKeyboardButton(
+                rating_labels[rating], callback_data=f"{RATE_PREFIX}{rating}"
             )
-
-        keyboard.append(rating_row)
+            if rating < 3:
+                row1.append(button)
+            else:
+                row2.append(button)
+                
+        keyboard.append(row1)
+        keyboard.append(row2)
 
         # Add end session button
         keyboard.append(
@@ -1199,35 +1247,30 @@ async def _send_next_card(update: Update, context: CallbackContext) -> int:
             )
 
     elif mode == TrainingMode.MULTIPLE_CHOICE.value:
-        # Multiple choice mode - show front and options
+        # Multiple choice mode - show front and options with progress bar
         options = card_data["options"]
-
+        
+        # Create visual progress bar
+        progress_bar = "▓" * progress['current'] + "░" * (progress['total'] - progress['current'])
+        
         message = (
-            f"•Card {progress['current']}/{progress['total']}•\n\n"
+            f"📝 *Card {progress['current']}/{progress['total']}*\n"
+            f"{progress_bar}\n\n"
             f"{front}\n\n"
             f"{card_data['prompt']}\n\n"
+            "*Choose the correct answer:*\n"
         )
 
-        # Add options
-        for i, option in enumerate(options):
-            message += f"{i}. {option}\n"
-
-        # Create option buttons
+        # Create option buttons - one button per row for better readability
         keyboard = []
-        option_row = []
 
-        for i in range(len(options)):
-            if i > 0 and i % 3 == 0:  # Start a new row every 3 buttons
-                keyboard.append(option_row)
-                option_row = []
-
-            option_row.append(
-                InlineKeyboardButton(str(i), callback_data=f"{ANSWER_PREFIX}{i}")
-            )
-
-        # Add the last row if not empty
-        if option_row:
-            keyboard.append(option_row)
+        for i, option in enumerate(options):
+            # Add each option as its own button in a separate row for clarity
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{option}", callback_data=f"{ANSWER_PREFIX}{i}"
+                )
+            ])
 
         # Add end session button
         keyboard.append(
@@ -1247,17 +1290,24 @@ async def _send_next_card(update: Update, context: CallbackContext) -> int:
             )
 
     elif mode == TrainingMode.FILL_IN_BLANK.value:
-        # Fill-in-blank mode - show front and blanked content
+        # Fill-in-blank mode - show front and blanked content with progress bar
         blanked_content = card_data["blanked_content"]
+        
+        # Create visual progress bar
+        progress_bar = "▓" * progress['current'] + "░" * (progress['total'] - progress['current'])
 
         message = (
-            f"•Card {progress['current']}/{progress['total']}•\n\n"
+            f"📝 *Card {progress['current']}/{progress['total']}*\n"
+            f"{progress_bar}\n\n"
             f"{blanked_content}\n\n"
-            f"{card_data['prompt']}"
+            f"*{card_data['prompt']}*"
         )
 
-        # No keyboard or reply markup for text input mode
-        reply_markup = None
+        # Add single button to end session
+        keyboard = [
+            [InlineKeyboardButton("End Session", callback_data=f"{END_PREFIX}session")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
         # Send the message
         if update.callback_query:
@@ -1338,9 +1388,13 @@ async def decks_command(update: Update, context: CallbackContext) -> int:
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    # Count total cards across all decks
+    total_cards = sum(len(deck.cards) for deck in decks)
+
     await update.message.reply_text(
         "📚 *Deck Management*\n\n"
-        "Here are your decks. Select one to manage or create a new deck:",
+        f"You have {len(decks)} decks with {total_cards} total cards.\n"
+        "Choose an option below:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )

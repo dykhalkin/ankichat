@@ -7,6 +7,7 @@
 - Run with verbose output: `pytest -v`
 - Check code style: `black .` (install with `pip install black`)
 - Type checking: `mypy src/` (install with `pip install mypy`)
+- Import flashcards from CSV: `python simple_csv_import.py file.csv --user USER_ID [--name "Deck Name"] [--list]`
 
 ## Code Style
 - **Imports**: Standard library first, third-party next, local modules last
@@ -39,3 +40,10 @@
 - LLM client is initialized in ReviewService.start_session when needed
 - Handle graceful degradation when LLM is unavailable
 - Properly await all LLM-related methods (especially generate_fill_in_blank)
+
+## CSV Import
+- Use `simple_csv_import.py` for importing flashcards from CSV files
+- CSV format is simple: first column is front of card, remaining columns are combined for back
+- Example: `Term,Definition,Additional Info`
+- See docs/csv_import.md for detailed instructions
+- Database schema is checked for tags column before inserting cards

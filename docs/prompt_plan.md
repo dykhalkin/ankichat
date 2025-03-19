@@ -115,3 +115,20 @@ Develop the deck management and CSV import/export functionalities:
 
 Ensure that the code is modular and easily testable, with clear separation of concerns.
 ```
+
+UI/UX Enhancements & Inline Button Navigation
+```
+Project Prompt 9:
+Enhance the Telegram bot UI/UX to provide a smooth, minimal interface:
+
+1. Refine inline button layouts and menu-driven navigation for:
+   - Flashcard creation
+   - Review sessions
+   - Deck management
+2. Ensure that bot responses are brief and grouped logically.
+3. Add conceptual progress indicators (e.g., simple text-based progress bars) and basic animations if possible.
+4. Implement error handling messages that are clear and concise.
+5. Write integration tests to simulate user navigation and verify that the UI flows do not produce orphaned or hanging code.
+
+The focus here is to ensure a seamless user experience and logical wiring of commands.
+```
