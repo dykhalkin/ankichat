@@ -159,8 +159,10 @@ class FlashcardService:
 class DeckService:
     """Service that handles deck business logic."""
 
-    def __init__(self, deck_repo: DeckRepository):
+    def __init__(self, deck_repo: DeckRepository, flashcard_repo: FlashcardRepository, llm_client: Optional[LLMClient] = None):
         self.deck_repo = deck_repo
+        self.flashcard_repo = flashcard_repo
+        self.llm_client = llm_client
         logger.info("DeckService initialized")
     
     def get_user_decks(self, user_id: str) -> List[Deck]:
@@ -193,6 +195,55 @@ class DeckService:
         created_deck = self.deck_repo.create(deck)
         logger.info(f"Created deck '{name}' with ID {created_deck.id} for user {user_id}")
         return created_deck
+    
+    def rename_deck(self, deck_id: str, new_name: str) -> Deck:
+        """
+        Rename a deck.
+        
+        Args:
+            deck_id: The ID of the deck to rename
+            new_name: The new name for the deck
+            
+        Returns:
+            The updated Deck object
+        """
+        deck = self.deck_repo.get(deck_id)
+        if not deck:
+            logger.error(f"Deck with ID {deck_id} not found")
+            raise ValueError(f"Deck with ID {deck_id} not found")
+        
+        old_name = deck.name
+        deck.name = new_name
+        updated_deck = self.deck_repo.update(deck)
+        
+        logger.info(f"Renamed deck from '{old_name}' to '{new_name}' with ID {deck_id}")
+        return updated_deck
+    
+    def delete_deck(self, deck_id: str) -> bool:
+        """
+        Delete a deck and all its flashcards.
+        
+        Args:
+            deck_id: The ID of the deck to delete
+            
+        Returns:
+            True if the deck was deleted, False otherwise
+        """
+        # Check if the deck exists
+        deck = self.deck_repo.get(deck_id)
+        if not deck:
+            logger.warning(f"Deck with ID {deck_id} not found")
+            return False
+        
+        # Delete the deck (cascade delete will remove the flashcards)
+        deleted = self.deck_repo.delete(deck_id)
+        
+        if deleted:
+            logger.info(f"Deleted deck '{deck.name}' with ID {deck_id}")
+        else:
+            logger.warning(f"Failed to delete deck with ID {deck_id}")
+        
+        return deleted
         
     def get_deck_with_cards(self, deck_id: str) -> Optional[Deck]:
         """
@@ -207,13 +258,96 @@ class DeckService:
         deck = self.deck_repo.get(deck_id)
         
         if deck:
-            # In a real implementation, load cards from the repository
-            # Here we assume the cards are already loaded with the deck
+            # Load cards from the repository
+            deck.cards = self.flashcard_repo.get_by_deck(deck_id)
             logger.info(f"Retrieved deck {deck_id} with {len(deck.cards)} cards")
         else:
             logger.warning(f"Deck {deck_id} not found")
             
         return deck
+    
+    def move_card_to_deck(self, card_id: str, target_deck_id: str) -> Flashcard:
+        """
+        Move a flashcard from its current deck to another deck.
+        
+        Args:
+            card_id: The ID of the flashcard to move
+            target_deck_id: The ID of the destination deck
+            
+        Returns:
+            The updated Flashcard object
+        """
+        # Get the card
+        card = self.flashcard_repo.get(card_id)
+        if not card:
+            logger.error(f"Flashcard with ID {card_id} not found")
+            raise ValueError(f"Flashcard with ID {card_id} not found")
+        
+        # Get the target deck
+        target_deck = self.deck_repo.get(target_deck_id)
+        if not target_deck:
+            logger.error(f"Target deck with ID {target_deck_id} not found")
+            raise ValueError(f"Target deck with ID {target_deck_id} not found")
+        
+        # Update the card's deck ID
+        original_deck_id = card.deck_id
+        card.deck_id = target_deck_id
+        updated_card = self.flashcard_repo.update(card)
+        
+        logger.info(f"Moved flashcard {card_id} from deck {original_deck_id} to {target_deck_id}")
+        return updated_card
+    
+    async def suggest_deck_name(self, content: str) -> str:
+        """
+        Suggest a deck name based on flashcard content using LLM.
+        
+        Args:
+            content: The content to analyze (typically front and back of a flashcard)
+            
+        Returns:
+            Suggested deck name
+        """
+        # Check if LLM client is available
+        if not self.llm_client or not self.llm_client.client:
+            logger.warning("LLM client not available for deck name suggestion")
+            # Return a default name if no LLM available
+            return "New Deck"
+        
+        try:
+            system_prompt = (
+                "You are a deck naming assistant for a flashcard application. "
+                "Your task is to analyze the content of a flashcard and suggest "
+                "a concise, descriptive name for a deck that would contain similar cards. "
+                "The name should be 1-4 words, descriptive, and categorical. "
+                "Do not use generic names like 'Flashcards' or 'Study Deck'. "
+                "Return ONLY the suggested deck name with no explanation or additional text."
+            )
+            
+            response = await self.llm_client.client.chat.completions.create(
+                model=self.llm_client.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Suggest a deck name for this flashcard content:\n\n{content}"}
+                ],
+                temperature=0.7,
+                max_tokens=50,
+                top_p=1.0,
+                frequency_penalty=0.0,
+                presence_penalty=0.0
+            )
+            
+            suggested_name = response.choices[0].message.content.strip()
+            
+            # Limit length if necessary
+            if len(suggested_name) > 50:
+                suggested_name = suggested_name[:50]
+                
+            logger.info(f"Suggested deck name: {suggested_name}")
+            return suggested_name
+            
+        except Exception as e:
+            logger.error(f"Error generating deck name suggestion: {e}")
+            return "New Deck"
 
 
 class ReviewService:

@@ -97,3 +97,21 @@ Implement the flashcard training modes and review session handling. Your objecti
 Wire the training modes into the Telegram bot commands, ensuring that users can choose which mode to use.
 ```
 
+Deck management and CSV import/export
+```
+Project Prompt 7:
+Develop the deck management and CSV import/export functionalities:
+
+1. Extend the data model to allow:
+   - Creation, renaming, and deletion of decks.
+   - Moving flashcards between decks.
+   - Automatic suggestion of deck names based on flashcard content. Use LLM assistant to identify proper deck name.
+2. Implement CSV import/export:
+   - Define a fixed CSV format that includes all flashcard fields.
+   - Write functions to import flashcards from a CSV file and export current decks/flashcards to CSV.
+3. Ensure that operations are reflected immediately in the system (auto-backup behavior simulated).
+4. Implement Telegram App UX flow for deck management.
+5. Write integration tests to verify that deck operations and CSV functionalities work correctly.
+
+Ensure that the code is modular and easily testable, with clear separation of concerns.
+```

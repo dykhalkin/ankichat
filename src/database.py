@@ -105,6 +105,15 @@ class Database:
             )
             ''')
             
+            # Check if tags column exists in the flashcards table
+            cursor.execute("PRAGMA table_info(flashcards)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            # Add tags column if it doesn't exist
+            if 'tags' not in columns:
+                logger.info("Adding tags column to flashcards table")
+                cursor.execute("ALTER TABLE flashcards ADD COLUMN tags TEXT")
+            
             self.conn.commit()
             logger.info("Database tables created or already exist")
         except sqlite3.Error as e:
@@ -304,17 +313,21 @@ class Database:
         """
         try:
             cursor = self.conn.cursor()
+            
+            # Convert tags list to JSON string
+            tags_json = json.dumps(card.tags) if card.tags else None
+            
             cursor.execute(
                 '''
                 INSERT INTO flashcards 
                 (id, front, back, language, created_at, due_date, 
-                interval, ease_factor, review_count, deck_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                interval, ease_factor, review_count, deck_id, tags)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''',
                 (
                     card.id, card.front, card.back, card.language, card.created_at,
                     card.due_date, card.interval, card.ease_factor, card.review_count,
-                    card.deck_id
+                    card.deck_id, tags_json
                 )
             )
             self.conn.commit()
@@ -347,6 +360,14 @@ class Database:
                 logger.info(f"Flashcard with ID {card_id} not found")
                 return None
             
+            # Parse tags from JSON
+            tags = []
+            if row['tags']:
+                try:
+                    tags = json.loads(row['tags'])
+                except json.JSONDecodeError:
+                    logger.warning(f"Invalid tags JSON for flashcard {card_id}")
+            
             card = Flashcard(
                 id=row['id'],
                 front=row['front'],
@@ -357,7 +378,8 @@ class Database:
                 interval=row['interval'],
                 ease_factor=row['ease_factor'],
                 review_count=row['review_count'],
-                deck_id=row['deck_id']
+                deck_id=row['deck_id'],
+                tags=tags
             )
             
             logger.info(f"Retrieved flashcard with ID {card_id}")
@@ -378,17 +400,21 @@ class Database:
         """
         try:
             cursor = self.conn.cursor()
+            
+            # Convert tags list to JSON string
+            tags_json = json.dumps(card.tags) if card.tags else None
+            
             cursor.execute(
                 '''
                 UPDATE flashcards
                 SET front = ?, back = ?, language = ?, due_date = ?,
-                interval = ?, ease_factor = ?, review_count = ?, deck_id = ?
+                interval = ?, ease_factor = ?, review_count = ?, deck_id = ?, tags = ?
                 WHERE id = ?
                 ''',
                 (
                     card.front, card.back, card.language, card.due_date,
                     card.interval, card.ease_factor, card.review_count,
-                    card.deck_id, card.id
+                    card.deck_id, tags_json, card.id
                 )
             )
             
@@ -455,6 +481,14 @@ class Database:
             
             cards = []
             for row in rows:
+                # Parse tags from JSON
+                tags = []
+                if row['tags']:
+                    try:
+                        tags = json.loads(row['tags'])
+                    except json.JSONDecodeError:
+                        logger.warning(f"Invalid tags JSON for flashcard {row['id']}")
+                
                 card = Flashcard(
                     id=row['id'],
                     front=row['front'],
@@ -465,7 +499,8 @@ class Database:
                     interval=row['interval'],
                     ease_factor=row['ease_factor'],
                     review_count=row['review_count'],
-                    deck_id=row['deck_id']
+                    deck_id=row['deck_id'],
+                    tags=tags
                 )
                 cards.append(card)
             
@@ -506,6 +541,14 @@ class Database:
             cards = []
             
             for row in rows:
+                # Parse tags from JSON
+                tags = []
+                if row['tags']:
+                    try:
+                        tags = json.loads(row['tags'])
+                    except json.JSONDecodeError:
+                        logger.warning(f"Invalid tags JSON for flashcard {row['id']}")
+                        
                 card = Flashcard(
                     id=row['id'],
                     front=row['front'],
@@ -516,7 +559,8 @@ class Database:
                     interval=row['interval'],
                     ease_factor=row['ease_factor'],
                     review_count=row['review_count'],
-                    deck_id=row['deck_id']
+                    deck_id=row['deck_id'],
+                    tags=tags
                 )
                 cards.append(card)
             

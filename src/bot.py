@@ -17,11 +17,25 @@ from src.handlers import (
     handle_callback_for_direct_input, cancel_command, review_command,
     handle_review_deck_selection, handle_training_mode_selection,
     handle_session_continue, handle_card_answer,
+    
+    # Deck management handlers
+    decks_command, handle_deck_command, handle_create_deck, handle_rename_deck,
+    handle_delete_deck_confirmation, handle_move_card_selection, handle_move_card_target_selection,
+    
+    # Conversation states
     AWAITING_CARD_TEXT, AWAITING_CONFIRMATION, AWAITING_DECK_SELECTION, AWAITING_EDIT,
     AWAITING_REVIEW_DECK_SELECTION, AWAITING_TRAINING_MODE_SELECTION, 
     AWAITING_ANSWER, REVIEWING_CARD,
+    AWAITING_DECK_COMMAND, AWAITING_DECK_NAME, AWAITING_DECK_RENAME,
+    AWAITING_DECK_DELETE_CONFIRMATION, AWAITING_DECK_MOVE_CARD_SELECTION,
+    AWAITING_DECK_MOVE_TARGET_SELECTION,
+    
+    # Callback prefixes
     CONFIRM_PREFIX, EDIT_PREFIX, CANCEL_PREFIX, DECK_PREFIX, MODE_PREFIX,
-    ANSWER_PREFIX, RATE_PREFIX, CONTINUE_PREFIX, END_PREFIX
+    ANSWER_PREFIX, RATE_PREFIX, CONTINUE_PREFIX, END_PREFIX,
+    DECK_CREATE_PREFIX, DECK_RENAME_PREFIX, DECK_DELETE_PREFIX,
+    DECK_CONFIRM_DELETE_PREFIX, DECK_CANCEL_DELETE_PREFIX, DECK_MANAGE_PREFIX,
+    DECK_MOVE_CARD_PREFIX, DECK_LIST_PREFIX, DECK_BACK_PREFIX
 )
 
 logger = logging.getLogger('ankichat')
@@ -57,7 +71,16 @@ class AnkiChatBot:
             data.startswith(CONFIRM_PREFIX) or 
             data.startswith(EDIT_PREFIX) or 
             data.startswith(CANCEL_PREFIX) or
-            data.startswith(DECK_PREFIX)
+            data.startswith(DECK_PREFIX) or
+            data.startswith(DECK_CREATE_PREFIX) or
+            data.startswith(DECK_RENAME_PREFIX) or
+            data.startswith(DECK_DELETE_PREFIX) or
+            data.startswith(DECK_CONFIRM_DELETE_PREFIX) or
+            data.startswith(DECK_CANCEL_DELETE_PREFIX) or
+            data.startswith(DECK_MANAGE_PREFIX) or
+            data.startswith(DECK_MOVE_CARD_PREFIX) or
+            data.startswith(DECK_LIST_PREFIX) or
+            data.startswith(DECK_BACK_PREFIX)
         )
         
         direct_callback_handler = CallbackQueryHandler(
@@ -74,6 +97,9 @@ class AnkiChatBot:
         
         # Register the flashcard review conversation handler
         self._register_review_handler()
+        
+        # Register the deck management conversation handler
+        self._register_deck_management_handler()
         
         # Add handler for direct text messages (outside of conversation)
         self._register_direct_text_handler()
@@ -175,6 +201,43 @@ class AnkiChatBot:
         # This is critical to prevent fill-in-blank answers from being treated as new flashcard commands
         self.application.add_handler(review_handler, group=-10)
         logger.info("Flashcard review conversation handler registered")
+        
+    def _register_deck_management_handler(self):
+        """Register the conversation handler for deck management."""
+        deck_management_handler = ConversationHandler(
+            entry_points=[
+                CommandHandler("decks", decks_command),
+            ],
+            states={
+                AWAITING_DECK_COMMAND: [
+                    CallbackQueryHandler(handle_deck_command)
+                ],
+                AWAITING_DECK_NAME: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_create_deck)
+                ],
+                AWAITING_DECK_RENAME: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_rename_deck)
+                ],
+                AWAITING_DECK_DELETE_CONFIRMATION: [
+                    CallbackQueryHandler(handle_delete_deck_confirmation)
+                ],
+                AWAITING_DECK_MOVE_CARD_SELECTION: [
+                    CallbackQueryHandler(handle_move_card_selection)
+                ],
+                AWAITING_DECK_MOVE_TARGET_SELECTION: [
+                    CallbackQueryHandler(handle_move_card_target_selection)
+                ]
+            },
+            fallbacks=[CommandHandler("cancel", cancel_command)],
+            name="deck_management",
+            persistent=False,
+            allow_reentry=True,
+            per_chat=True
+        )
+        
+        # Use high priority like the other conversation handlers
+        self.application.add_handler(deck_management_handler, group=-10)
+        logger.info("Deck management conversation handler registered")
     
     async def _error_handler(self, update, context):
         """Log errors caused by updates."""

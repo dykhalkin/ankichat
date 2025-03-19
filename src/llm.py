@@ -43,6 +43,64 @@ class LLMClient:
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI client: {e}")
                 self.client = None
+                
+    async def detect_category(self, content: str) -> str:
+        """
+        Detect the appropriate category/deck name for flashcard content.
+        
+        Args:
+            content: The content to analyze
+            
+        Returns:
+            Suggested category/deck name
+        """
+        logger.debug(f"Detecting category for content: {content[:30]}...")
+        
+        # Check if client is available
+        if not self.client:
+            logger.warning("LLM client not initialized - returning default category")
+            return "General Knowledge"
+            
+        try:
+            system_prompt = (
+                "You are a categorization expert. Your task is to analyze the flashcard content "
+                "and suggest an appropriate category or deck name. The name should be 1-4 words, "
+                "descriptive, and categorical. Return ONLY the category name with no quotes or formatting."
+            )
+
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": content},
+                ],
+                temperature=0.5,
+                max_tokens=50,
+                top_p=1.0,
+                frequency_penalty=0.0,
+                presence_penalty=0.0
+            )
+
+            # Extract response
+            category = response.choices[0].message.content.strip()
+            
+            # Remove quotes if present
+            if category.startswith('"') and category.endswith('"'):
+                category = category[1:-1]
+            if category.startswith("'") and category.endswith("'"):
+                category = category[1:-1]
+            
+            # Limit length
+            if len(category) > 50:
+                category = category[:50]
+
+            logger.info(f"Detected category: {category}")
+            return category
+
+        except Exception as e:
+            logger.error(f"Error detecting category: {e}")
+            # Default category if detection fails
+            return "General Knowledge"
 
     async def detect_language(self, text: str) -> Tuple[str, float]:
         """

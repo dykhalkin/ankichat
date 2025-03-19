@@ -49,9 +49,9 @@ def flashcard_service(mock_flashcard_repo, mock_deck_repo, mock_llm_client):
 
 
 @pytest.fixture
-def deck_service(mock_deck_repo):
+def deck_service(mock_deck_repo, mock_flashcard_repo, mock_llm_client):
     """Create a DeckService with mock dependencies."""
-    return DeckService(mock_deck_repo)
+    return DeckService(mock_deck_repo, mock_flashcard_repo, mock_llm_client)
 
 
 @pytest.mark.asyncio
