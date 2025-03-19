@@ -2,24 +2,27 @@
 Command handlers for the Telegram Anki Flashcards bot.
 """
 
-import logging
 import json
-from typing import Dict, Any, Optional, cast, Union, Coroutine
+import logging
+from typing import Any, Coroutine, Dict, Optional, Union, cast
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    Update,
+)
 from telegram.ext import CallbackContext, ConversationHandler
 
-from src.services import FlashcardService, DeckService, ReviewService
-from src.models import Deck, Flashcard
-from src.llm import LLMClient
-from src.repository import SQLiteDeckRepository, SQLiteFlashcardRepository
 from src.database import Database
-from src.training import (
-    TrainingMode,
-    get_training_mode_explanation,
-    FillInBlankTrainer,
-)
+from src.llm import LLMClient
+from src.models import Deck, Flashcard
+from src.repository import SQLiteDeckRepository, SQLiteFlashcardRepository
+from src.services import DeckService, FlashcardService, ReviewService
 from src.srs import RecallScore
+from src.training import FillInBlankTrainer, TrainingMode, get_training_mode_explanation
 
 logger = logging.getLogger("ankichat")
 
@@ -33,7 +36,6 @@ logger = logging.getLogger("ankichat")
     AWAITING_TRAINING_MODE_SELECTION,
     AWAITING_ANSWER,
     REVIEWING_CARD,
-    
     # Deck management states
     AWAITING_DECK_COMMAND,
     AWAITING_DECK_NAME,
@@ -180,15 +182,18 @@ async def direct_text_handler(update: Update, context: CallbackContext) -> None:
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
     text = update.message.text
-    
+
     logger.info(f"Direct text handler triggered for user {user_id} with text: {text[:20]}...")
 
     # CRITICAL: Check if the user has an active review session
     # If so, this message should have been handled by the review conversation handler
     # We need this extra check in case the conversation handler priorities fail
     from src.services import ACTIVE_SESSIONS
+
     if user_id in ACTIVE_SESSIONS:
-        logger.warning(f"User {user_id} has an active review session but message reached direct_text_handler. Ignoring.")
+        logger.warning(
+            f"User {user_id} has an active review session but message reached direct_text_handler. Ignoring."
+        )
         await update.message.reply_text(
             "It looks like you're in the middle of a review session. "
             "This message will be ignored. If you're trying to answer a flashcard, "
@@ -196,7 +201,7 @@ async def direct_text_handler(update: Update, context: CallbackContext) -> None:
             "You can use /cancel to end your current session."
         )
         return
-    
+
     # Process the text just like the regular card creation flow
     await _process_flashcard_input(update, context)
 
@@ -241,9 +246,7 @@ async def _process_flashcard_input(update: Update, context: CallbackContext) -> 
     text = update.message.text
 
     # Send a processing message with a simple animation
-    processing_message = await update.message.reply_text(
-        "⏳ Creating flashcard..."
-    )
+    processing_message = await update.message.reply_text("⏳ Creating flashcard...")
 
     # Get the services
     flashcard_service = _get_flashcard_service()
@@ -265,11 +268,7 @@ async def _process_flashcard_input(update: Update, context: CallbackContext) -> 
                     "✅ Save", callback_data=f"{CONFIRM_PREFIX}{preview['preview_id']}"
                 )
             ],
-            [
-                InlineKeyboardButton(
-                    "✏️ Edit", callback_data=f"{EDIT_PREFIX}{preview['preview_id']}"
-                )
-            ],
+            [InlineKeyboardButton("✏️ Edit", callback_data=f"{EDIT_PREFIX}{preview['preview_id']}")],
             [
                 InlineKeyboardButton(
                     "❌ Cancel", callback_data=f"{CANCEL_PREFIX}{preview['preview_id']}"
@@ -404,26 +403,20 @@ async def handle_preview_callback(update: Update, context: CallbackContext) -> i
         # Create inline keyboard with decks - maximum 3 decks per row for better UX
         keyboard = []
         current_row = []
-        
+
         for i, deck in enumerate(decks):
             current_row.append(
-                InlineKeyboardButton(
-                    deck.name, callback_data=f"{DECK_PREFIX}{deck.id}"
-                )
+                InlineKeyboardButton(deck.name, callback_data=f"{DECK_PREFIX}{deck.id}")
             )
-            
+
             # Start a new row after every 2 deck buttons
             if (i + 1) % 2 == 0 or i == len(decks) - 1:
                 keyboard.append(current_row)
                 current_row = []
-        
+
         # Add a cancel button in its own row
         keyboard.append(
-            [
-                InlineKeyboardButton(
-                    "❌ Cancel", callback_data=f"{CANCEL_PREFIX}{preview_id}"
-                )
-            ]
+            [InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}{preview_id}")]
         )
 
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -436,9 +429,7 @@ async def handle_preview_callback(update: Update, context: CallbackContext) -> i
         # Update the state for direct conversations
         if is_direct:
             DIRECT_CONVERSATIONS[chat_id] = DIRECT_AWAITING_DECK_SELECTION
-            logger.info(
-                f"Updated direct conversation state to {DIRECT_AWAITING_DECK_SELECTION}"
-            )
+            logger.info(f"Updated direct conversation state to {DIRECT_AWAITING_DECK_SELECTION}")
 
         return AWAITING_DECK_SELECTION
 
@@ -491,9 +482,7 @@ async def handle_deck_selection(update: Update, context: CallbackContext) -> int
     chat_id = str(update.effective_chat.id)
 
     # Only process callbacks that start with our prefixes
-    if not (
-        callback_data.startswith(DECK_PREFIX) or callback_data.startswith(CANCEL_PREFIX)
-    ):
+    if not (callback_data.startswith(DECK_PREFIX) or callback_data.startswith(CANCEL_PREFIX)):
         # This might be a callback for a different handler
         return None
 
@@ -501,9 +490,7 @@ async def handle_deck_selection(update: Update, context: CallbackContext) -> int
     is_direct = chat_id in DIRECT_CONVERSATIONS
 
     # Log the callback data and conversation state
-    logger.info(
-        f"Handling deck selection callback: {callback_data}, direct: {is_direct}"
-    )
+    logger.info(f"Handling deck selection callback: {callback_data}, direct: {is_direct}")
     if is_direct:
         logger.info(f"Direct conversation state: {DIRECT_CONVERSATIONS[chat_id]}")
 
@@ -524,9 +511,7 @@ async def handle_deck_selection(update: Update, context: CallbackContext) -> int
 
         if not preview_id:
             logger.error("No preview ID found in user data")
-            await query.edit_message_text(
-                "Sorry, something went wrong. Please try again."
-            )
+            await query.edit_message_text("Sorry, something went wrong. Please try again.")
 
             # Clean up direct conversation state if needed
             if is_direct:
@@ -635,12 +620,8 @@ async def review_command(update: Update, context: CallbackContext) -> int:
         # Ask if user wants to continue existing session or start a new one
         keyboard = [
             [
-                InlineKeyboardButton(
-                    "Continue", callback_data=f"{CONTINUE_PREFIX}session"
-                ),
-                InlineKeyboardButton(
-                    "End current session", callback_data=f"{END_PREFIX}session"
-                ),
+                InlineKeyboardButton("Continue", callback_data=f"{CONTINUE_PREFIX}session"),
+                InlineKeyboardButton("End current session", callback_data=f"{END_PREFIX}session"),
             ]
         ]
 
@@ -669,21 +650,15 @@ async def review_command(update: Update, context: CallbackContext) -> int:
     # Create inline keyboard with decks
     keyboard = []
     for deck in decks:
-        keyboard.append(
-            [InlineKeyboardButton(deck.name, callback_data=f"{DECK_PREFIX}{deck.id}")]
-        )
+        keyboard.append([InlineKeyboardButton(deck.name, callback_data=f"{DECK_PREFIX}{deck.id}")])
 
     # Add a cancel button
-    keyboard.append(
-        [InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}review")]
-    )
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}review")])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     # Ask user to select a deck
-    await update.message.reply_text(
-        "Please select a deck to review:", reply_markup=reply_markup
-    )
+    await update.message.reply_text("Please select a deck to review:", reply_markup=reply_markup)
 
     return AWAITING_REVIEW_DECK_SELECTION
 
@@ -732,9 +707,7 @@ async def handle_review_deck_selection(update: Update, context: CallbackContext)
             )
 
         # Add a cancel button
-        keyboard.append(
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}mode")]
-        )
+        keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}mode")])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -758,9 +731,7 @@ async def handle_review_deck_selection(update: Update, context: CallbackContext)
     return ConversationHandler.END
 
 
-async def handle_training_mode_selection(
-    update: Update, context: CallbackContext
-) -> int:
+async def handle_training_mode_selection(update: Update, context: CallbackContext) -> int:
     """
     Handle training mode selection for review.
 
@@ -802,9 +773,7 @@ async def handle_training_mode_selection(
         deck_id = context.user_data.get("selected_deck_id")
         if not deck_id:
             logger.error("No deck ID found in user data")
-            await query.edit_message_text(
-                "Sorry, something went wrong. Please try again."
-            )
+            await query.edit_message_text("Sorry, something went wrong. Please try again.")
             return ConversationHandler.END
 
         # Get explanation for the selected mode
@@ -820,8 +789,7 @@ async def handle_training_mode_selection(
             if not result["success"]:
                 # No cards to review
                 await query.edit_message_text(
-                    f"{result['message']}\n\n"
-                    "Try creating more flashcards first with /new."
+                    f"{result['message']}\n\n" "Try creating more flashcards first with /new."
                 )
                 return ConversationHandler.END
 
@@ -924,7 +892,7 @@ async def handle_card_answer(update: Update, context: CallbackContext) -> int:
     """
     user_id = str(update.effective_user.id)
     logger.info(f"Card answer handler triggered for user {user_id}")
-    
+
     # Check if this was triggered by the catch-all fallback
     if not (update.callback_query or (update.message and update.message.text)):
         logger.warning(f"Catch-all fallback triggered for user {user_id} - ignoring")
@@ -987,15 +955,17 @@ async def handle_card_answer(update: Update, context: CallbackContext) -> int:
                 is_correct = result["is_correct"]
 
                 # Create a visual progress indicator
-                cards_left = result['session_status']['cards_left']
-                cards_total = result['session_status'].get('cards_total', cards_left + 1)
+                cards_left = result["session_status"]["cards_left"]
+                cards_total = result["session_status"].get("cards_total", cards_left + 1)
                 cards_complete = cards_total - cards_left
-                
+
                 # Create progress bar
                 progress_bar = "▓" * cards_complete + "░" * cards_left
-                
+
                 feedback_emoji = "🎯" if is_correct else "❌"
-                progress_percentage = int((cards_complete / cards_total) * 100) if cards_total > 0 else 0
+                progress_percentage = (
+                    int((cards_complete / cards_total) * 100) if cards_total > 0 else 0
+                )
 
                 feedback_message = (
                     f"{feedback_emoji} {'Correct!' if is_correct else 'Incorrect!'}\n\n"
@@ -1021,11 +991,11 @@ async def handle_card_answer(update: Update, context: CallbackContext) -> int:
 
                 # Format the summary message
                 # Calculate accuracy for visual representation
-                accuracy = summary['accuracy']
+                accuracy = summary["accuracy"]
                 accuracy_bar = "🟩" * int(accuracy * 10) + "⬜" * (10 - int(accuracy * 10))
-                minutes = summary['duration_seconds'] / 60
-                seconds = summary['duration_seconds'] % 60
-                
+                minutes = summary["duration_seconds"] / 60
+                seconds = summary["duration_seconds"] % 60
+
                 summary_message = (
                     "🏆 *Session Complete!*\n\n"
                     f"📊 *Stats:*\n"
@@ -1066,20 +1036,20 @@ async def handle_card_answer(update: Update, context: CallbackContext) -> int:
         # Provide feedback on the answer
         if "is_correct" in result:
             is_correct = result["is_correct"]
-            correct_answer = result.get("correct_answer", "") or result.get(
-                "blanked_term", ""
-            )
+            correct_answer = result.get("correct_answer", "") or result.get("blanked_term", "")
 
             # Create a visual progress indicator
-            cards_left = result['session_status']['cards_left']
-            cards_total = result['session_status'].get('cards_total', cards_left + 1)
+            cards_left = result["session_status"]["cards_left"]
+            cards_total = result["session_status"].get("cards_total", cards_left + 1)
             cards_complete = cards_total - cards_left
-            
+
             # Create progress bar
             progress_bar = "▓" * cards_complete + "░" * cards_left
-            
+
             feedback_emoji = "🎯" if is_correct else "❌"
-            progress_percentage = int((cards_complete / cards_total) * 100) if cards_total > 0 else 0
+            progress_percentage = (
+                int((cards_complete / cards_total) * 100) if cards_total > 0 else 0
+            )
 
             feedback_message = (
                 f"{feedback_emoji} {'Correct!' if is_correct else 'Incorrect!'}\n\n"
@@ -1192,8 +1162,8 @@ async def _send_next_card(update: Update, context: CallbackContext) -> int:
     # Format the message based on the training mode
     if mode == TrainingMode.STANDARD.value:
         # Standard mode - show front and ask user to recall with a progress bar
-        progress_bar = "▓" * progress['current'] + "░" * (progress['total'] - progress['current'])
-        
+        progress_bar = "▓" * progress["current"] + "░" * (progress["total"] - progress["current"])
+
         message = (
             f"📝 *Card {progress['current']}/{progress['total']}*\n"
             f"{progress_bar}\n\n"
@@ -1209,14 +1179,14 @@ async def _send_next_card(update: Update, context: CallbackContext) -> int:
             "2 🤔 Familiar",
             "3 🙂 Correct (hard)",
             "4 😀 Correct (slight hesitation)",
-            "5 🎯 Perfect recall"
+            "5 🎯 Perfect recall",
         ]
-        
+
         # Create two rows of rating buttons for better UX
         keyboard = []
         row1 = []
         row2 = []
-        
+
         for rating in range(6):
             button = InlineKeyboardButton(
                 rating_labels[rating], callback_data=f"{RATE_PREFIX}{rating}"
@@ -1225,14 +1195,12 @@ async def _send_next_card(update: Update, context: CallbackContext) -> int:
                 row1.append(button)
             else:
                 row2.append(button)
-                
+
         keyboard.append(row1)
         keyboard.append(row2)
 
         # Add end session button
-        keyboard.append(
-            [InlineKeyboardButton("End Session", callback_data=f"{END_PREFIX}session")]
-        )
+        keyboard.append([InlineKeyboardButton("End Session", callback_data=f"{END_PREFIX}session")])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -1249,10 +1217,10 @@ async def _send_next_card(update: Update, context: CallbackContext) -> int:
     elif mode == TrainingMode.MULTIPLE_CHOICE.value:
         # Multiple choice mode - show front and options with progress bar
         options = card_data["options"]
-        
+
         # Create visual progress bar
-        progress_bar = "▓" * progress['current'] + "░" * (progress['total'] - progress['current'])
-        
+        progress_bar = "▓" * progress["current"] + "░" * (progress["total"] - progress["current"])
+
         message = (
             f"📝 *Card {progress['current']}/{progress['total']}*\n"
             f"{progress_bar}\n\n"
@@ -1266,16 +1234,12 @@ async def _send_next_card(update: Update, context: CallbackContext) -> int:
 
         for i, option in enumerate(options):
             # Add each option as its own button in a separate row for clarity
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"{option}", callback_data=f"{ANSWER_PREFIX}{i}"
-                )
-            ])
+            keyboard.append(
+                [InlineKeyboardButton(f"{option}", callback_data=f"{ANSWER_PREFIX}{i}")]
+            )
 
         # Add end session button
-        keyboard.append(
-            [InlineKeyboardButton("End Session", callback_data=f"{END_PREFIX}session")]
-        )
+        keyboard.append([InlineKeyboardButton("End Session", callback_data=f"{END_PREFIX}session")])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -1292,9 +1256,9 @@ async def _send_next_card(update: Update, context: CallbackContext) -> int:
     elif mode == TrainingMode.FILL_IN_BLANK.value:
         # Fill-in-blank mode - show front and blanked content with progress bar
         blanked_content = card_data["blanked_content"]
-        
+
         # Create visual progress bar
-        progress_bar = "▓" * progress['current'] + "░" * (progress['total'] - progress['current'])
+        progress_bar = "▓" * progress["current"] + "░" * (progress["total"] - progress["current"])
 
         message = (
             f"📝 *Card {progress['current']}/{progress['total']}*\n"
@@ -1304,9 +1268,7 @@ async def _send_next_card(update: Update, context: CallbackContext) -> int:
         )
 
         # Add single button to end session
-        keyboard = [
-            [InlineKeyboardButton("End Session", callback_data=f"{END_PREFIX}session")]
-        ]
+        keyboard = [[InlineKeyboardButton("End Session", callback_data=f"{END_PREFIX}session")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         # Send the message
@@ -1328,9 +1290,7 @@ async def _send_next_card(update: Update, context: CallbackContext) -> int:
         )
 
         # Add end session button
-        keyboard = [
-            [InlineKeyboardButton("End Session", callback_data=f"{END_PREFIX}session")]
-        ]
+        keyboard = [[InlineKeyboardButton("End Session", callback_data=f"{END_PREFIX}session")]]
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -1349,45 +1309,42 @@ async def _send_next_card(update: Update, context: CallbackContext) -> int:
 
 # Deck management handlers
 
+
 async def decks_command(update: Update, context: CallbackContext) -> int:
     """
     Handle the /decks command to manage decks.
-    
+
     This command shows the list of available decks and management options.
-    
+
     Args:
         update: The update object
         context: The context object
-        
+
     Returns:
         The next conversation state
     """
     user = update.effective_user
     user_id = str(user.id)
     logger.info(f"User {user_id} started deck management")
-    
+
     # Get the user's decks
     deck_service = _get_deck_service()
     decks = deck_service.get_user_decks(user_id)
-    
+
     # Create an inline keyboard for deck management options
-    keyboard = [
-        [InlineKeyboardButton("Create New Deck", callback_data=f"{DECK_CREATE_PREFIX}new")]
-    ]
-    
+    keyboard = [[InlineKeyboardButton("Create New Deck", callback_data=f"{DECK_CREATE_PREFIX}new")]]
+
     # Add buttons for each existing deck
     for deck in decks:
-        keyboard.append([
-            InlineKeyboardButton(deck.name, callback_data=f"{DECK_MANAGE_PREFIX}{deck.id}")
-        ])
-    
+        keyboard.append(
+            [InlineKeyboardButton(deck.name, callback_data=f"{DECK_MANAGE_PREFIX}{deck.id}")]
+        )
+
     # Add a cancel button
-    keyboard.append([
-        InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}decks")
-    ])
-    
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}decks")])
+
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     # Count total cards across all decks
     total_cards = sum(len(deck.cards) for deck in decks)
 
@@ -1396,85 +1353,83 @@ async def decks_command(update: Update, context: CallbackContext) -> int:
         f"You have {len(decks)} decks with {total_cards} total cards.\n"
         "Choose an option below:",
         reply_markup=reply_markup,
-        parse_mode="Markdown"
+        parse_mode="Markdown",
     )
-    
+
     return AWAITING_DECK_COMMAND
 
 
 async def handle_deck_command(update: Update, context: CallbackContext) -> int:
     """
     Handle user selection from the deck management menu.
-    
+
     Args:
         update: The update object
         context: The context object
-        
+
     Returns:
         The next conversation state
     """
     query = cast(CallbackQuery, update.callback_query)
     await query.answer()
-    
+
     callback_data = query.data
     user_id = str(update.effective_user.id)
-    
+
     # Check if the user wants to cancel
     if callback_data.startswith(CANCEL_PREFIX):
         await query.edit_message_text("Deck management cancelled.")
         return ConversationHandler.END
-    
+
     # User wants to create a new deck
     if callback_data.startswith(DECK_CREATE_PREFIX):
-        await query.edit_message_text(
-            "Please enter a name for your new deck:"
-        )
+        await query.edit_message_text("Please enter a name for your new deck:")
         return AWAITING_DECK_NAME
-    
+
     # User selected a deck to manage
     if callback_data.startswith(DECK_MANAGE_PREFIX):
-        deck_id = callback_data[len(DECK_MANAGE_PREFIX):]
+        deck_id = callback_data[len(DECK_MANAGE_PREFIX) :]
         context.user_data["selected_deck_id"] = deck_id
-        
+
         # Get the deck details
         deck_service = _get_deck_service()
         deck = deck_service.get_deck_with_cards(deck_id)
-        
+
         if not deck:
             await query.edit_message_text("Sorry, this deck no longer exists.")
             return ConversationHandler.END
-        
+
         # Store the deck name for later use
         context.user_data["selected_deck_name"] = deck.name
-        
+
         # Create a keyboard with deck management options
         keyboard = [
             [InlineKeyboardButton("✏️ Rename Deck", callback_data=f"{DECK_RENAME_PREFIX}{deck_id}")],
             [InlineKeyboardButton("🗑️ Delete Deck", callback_data=f"{DECK_DELETE_PREFIX}{deck_id}")],
-            [InlineKeyboardButton("🔄 Move Cards", callback_data=f"{DECK_MOVE_CARD_PREFIX}{deck_id}")],
+            [
+                InlineKeyboardButton(
+                    "🔄 Move Cards", callback_data=f"{DECK_MOVE_CARD_PREFIX}{deck_id}"
+                )
+            ],
             [InlineKeyboardButton("◀️ Back to Decks", callback_data=f"{DECK_LIST_PREFIX}back")],
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}deck_manage")]
+            [InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}deck_manage")],
         ]
-        
+
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         # Format the message with deck details
-        created_date = deck.created_at.strftime('%Y-%m-%d') if deck.created_at else "Unknown"
+        created_date = deck.created_at.strftime("%Y-%m-%d") if deck.created_at else "Unknown"
         message = (
             f"📚 *Deck: {deck.name}*\n\n"
             f"• Cards: {len(deck.cards)}\n"
             f"• Created: {created_date}\n\n"
             f"What would you like to do with this deck?"
         )
-        
-        await query.edit_message_text(
-            message,
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
-        
+
+        await query.edit_message_text(message, reply_markup=reply_markup, parse_mode="Markdown")
+
         return AWAITING_DECK_COMMAND
-    
+
     # User wants to go back to deck list
     if callback_data.startswith(DECK_LIST_PREFIX):
         # Clear any selected deck data
@@ -1482,134 +1437,133 @@ async def handle_deck_command(update: Update, context: CallbackContext) -> int:
             del context.user_data["selected_deck_id"]
         if "selected_deck_name" in context.user_data:
             del context.user_data["selected_deck_name"]
-        
+
         # Get user's decks and show the list again
         deck_service = _get_deck_service()
         decks = deck_service.get_user_decks(user_id)
-        
+
         keyboard = [
             [InlineKeyboardButton("Create New Deck", callback_data=f"{DECK_CREATE_PREFIX}new")]
         ]
-        
+
         for deck in decks:
-            keyboard.append([
-                InlineKeyboardButton(deck.name, callback_data=f"{DECK_MANAGE_PREFIX}{deck.id}")
-            ])
-        
-        keyboard.append([
-            InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}decks")
-        ])
-        
+            keyboard.append(
+                [InlineKeyboardButton(deck.name, callback_data=f"{DECK_MANAGE_PREFIX}{deck.id}")]
+            )
+
+        keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}decks")])
+
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         await query.edit_message_text(
             "📚 *Deck Management*\n\n"
             "Here are your decks. Select one to manage or create a new deck:",
             reply_markup=reply_markup,
-            parse_mode="Markdown"
+            parse_mode="Markdown",
         )
-        
+
         return AWAITING_DECK_COMMAND
-    
+
     # Handle rename deck request
     if callback_data.startswith(DECK_RENAME_PREFIX):
-        deck_id = callback_data[len(DECK_RENAME_PREFIX):]
+        deck_id = callback_data[len(DECK_RENAME_PREFIX) :]
         context.user_data["rename_deck_id"] = deck_id
-        
+
         # Get current deck name
         deck_service = _get_deck_service()
         deck = deck_service.get_deck_with_cards(deck_id)
-        
+
         if not deck:
             await query.edit_message_text("Sorry, this deck no longer exists.")
             return ConversationHandler.END
-        
+
         await query.edit_message_text(
-            f"Current name: *{deck.name}*\n\n"
-            "Please enter a new name for this deck:",
-            parse_mode="Markdown"
+            f"Current name: *{deck.name}*\n\n" "Please enter a new name for this deck:",
+            parse_mode="Markdown",
         )
-        
+
         return AWAITING_DECK_RENAME
-    
+
     # Handle delete deck request
     if callback_data.startswith(DECK_DELETE_PREFIX):
-        deck_id = callback_data[len(DECK_DELETE_PREFIX):]
+        deck_id = callback_data[len(DECK_DELETE_PREFIX) :]
         context.user_data["delete_deck_id"] = deck_id
-        
+
         # Get deck details
         deck_service = _get_deck_service()
         deck = deck_service.get_deck_with_cards(deck_id)
-        
+
         if not deck:
             await query.edit_message_text("Sorry, this deck no longer exists.")
             return ConversationHandler.END
-        
+
         # Ask for confirmation
         keyboard = [
             [
-                InlineKeyboardButton("Yes, Delete", callback_data=f"{DECK_CONFIRM_DELETE_PREFIX}{deck_id}"),
-                InlineKeyboardButton("No, Cancel", callback_data=f"{DECK_CANCEL_DELETE_PREFIX}{deck_id}")
+                InlineKeyboardButton(
+                    "Yes, Delete", callback_data=f"{DECK_CONFIRM_DELETE_PREFIX}{deck_id}"
+                ),
+                InlineKeyboardButton(
+                    "No, Cancel", callback_data=f"{DECK_CANCEL_DELETE_PREFIX}{deck_id}"
+                ),
             ]
         ]
-        
+
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         await query.edit_message_text(
             f"⚠️ Are you sure you want to delete the deck *{deck.name}*?\n\n"
             f"This will permanently delete all {len(deck.cards)} cards in this deck. "
             f"This action cannot be undone.",
             reply_markup=reply_markup,
-            parse_mode="Markdown"
+            parse_mode="Markdown",
         )
-        
+
         return AWAITING_DECK_DELETE_CONFIRMATION
-    
+
     # Handle move cards request
     if callback_data.startswith(DECK_MOVE_CARD_PREFIX):
-        deck_id = callback_data[len(DECK_MOVE_CARD_PREFIX):]
+        deck_id = callback_data[len(DECK_MOVE_CARD_PREFIX) :]
         context.user_data["source_deck_id"] = deck_id
-        
+
         # Get the source deck with its cards
         deck_service = _get_deck_service()
         source_deck = deck_service.get_deck_with_cards(deck_id)
-        
+
         if not source_deck or not source_deck.cards:
-            await query.edit_message_text(
-                "This deck doesn't exist or has no cards to move."
-            )
+            await query.edit_message_text("This deck doesn't exist or has no cards to move.")
             return ConversationHandler.END
-        
+
         # Store the source deck name
         context.user_data["source_deck_name"] = source_deck.name
-        
+
         # Create a keyboard with all cards from the source deck
         keyboard = []
         for card in source_deck.cards:
             # Truncate card text if too long
             card_text = card.front[:30] + ("..." if len(card.front) > 30 else "")
-            keyboard.append([
-                InlineKeyboardButton(card_text, callback_data=f"{DECK_MOVE_CARD_PREFIX}{card.id}")
-            ])
-        
+            keyboard.append(
+                [InlineKeyboardButton(card_text, callback_data=f"{DECK_MOVE_CARD_PREFIX}{card.id}")]
+            )
+
         # Add back and cancel buttons
-        keyboard.append([
-            InlineKeyboardButton("◀️ Back", callback_data=f"{DECK_MANAGE_PREFIX}{deck_id}")
-        ])
-        keyboard.append([
-            InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}move_cards")
-        ])
-        
+        keyboard.append(
+            [InlineKeyboardButton("◀️ Back", callback_data=f"{DECK_MANAGE_PREFIX}{deck_id}")]
+        )
+        keyboard.append(
+            [InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}move_cards")]
+        )
+
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         await query.edit_message_text(
             f"Select a card from *{source_deck.name}* to move:",
             reply_markup=reply_markup,
-            parse_mode="Markdown"
+            parse_mode="Markdown",
         )
-        
+
         return AWAITING_DECK_MOVE_CARD_SELECTION
-    
+
     # Unknown callback data
     logger.warning(f"Unknown callback data in deck management: {callback_data}")
     await query.edit_message_text("Sorry, something went wrong. Please try again.")
@@ -1619,44 +1573,44 @@ async def handle_deck_command(update: Update, context: CallbackContext) -> int:
 async def handle_create_deck(update: Update, context: CallbackContext) -> int:
     """
     Handle the creation of a new deck.
-    
+
     Args:
         update: The update object
         context: The context object
-        
+
     Returns:
         The next conversation state
     """
     user_id = str(update.effective_user.id)
     new_deck_name = update.message.text
-    
+
     # Create the new deck
     deck_service = _get_deck_service()
-    
+
     try:
-        creation_date = update.message.date.strftime('%Y-%m-%d') if update.message.date else "unknown date"
-        new_deck = deck_service.create_deck(
-            name=new_deck_name,
-            user_id=user_id,
-            description=f"Created on {creation_date}"
+        creation_date = (
+            update.message.date.strftime("%Y-%m-%d") if update.message.date else "unknown date"
         )
-        
+        new_deck = deck_service.create_deck(
+            name=new_deck_name, user_id=user_id, description=f"Created on {creation_date}"
+        )
+
         # Create a keyboard to go back to deck list
         keyboard = [
             [InlineKeyboardButton("◀️ Back to Decks", callback_data=f"{DECK_LIST_PREFIX}back")],
-            [InlineKeyboardButton("❌ Close", callback_data=f"{CANCEL_PREFIX}after_create")]
+            [InlineKeyboardButton("❌ Close", callback_data=f"{CANCEL_PREFIX}after_create")],
         ]
-        
+
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         await update.message.reply_text(
             f"✅ Deck *{new_deck_name}* created successfully!",
             reply_markup=reply_markup,
-            parse_mode="Markdown"
+            parse_mode="Markdown",
         )
-        
+
         return AWAITING_DECK_COMMAND
-        
+
     except Exception as e:
         logger.error(f"Error creating deck: {e}")
         await update.message.reply_text(
@@ -1668,50 +1622,52 @@ async def handle_create_deck(update: Update, context: CallbackContext) -> int:
 async def handle_rename_deck(update: Update, context: CallbackContext) -> int:
     """
     Handle renaming an existing deck.
-    
+
     Args:
         update: The update object
         context: The context object
-        
+
     Returns:
         The next conversation state
     """
     user_id = str(update.effective_user.id)
     new_name = update.message.text
     deck_id = context.user_data.get("rename_deck_id")
-    
+
     if not deck_id:
-        await update.message.reply_text(
-            "Sorry, I couldn't find the deck you're trying to rename."
-        )
+        await update.message.reply_text("Sorry, I couldn't find the deck you're trying to rename.")
         return ConversationHandler.END
-    
+
     # Rename the deck
     deck_service = _get_deck_service()
-    
+
     try:
         updated_deck = deck_service.rename_deck(deck_id, new_name)
-        
+
         # Create a keyboard to go back to deck management
         keyboard = [
-            [InlineKeyboardButton("◀️ Back to Deck", callback_data=f"{DECK_MANAGE_PREFIX}{deck_id}")],
+            [
+                InlineKeyboardButton(
+                    "◀️ Back to Deck", callback_data=f"{DECK_MANAGE_PREFIX}{deck_id}"
+                )
+            ],
             [InlineKeyboardButton("📚 All Decks", callback_data=f"{DECK_LIST_PREFIX}back")],
-            [InlineKeyboardButton("❌ Close", callback_data=f"{CANCEL_PREFIX}after_rename")]
+            [InlineKeyboardButton("❌ Close", callback_data=f"{CANCEL_PREFIX}after_rename")],
         ]
-        
+
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         await update.message.reply_text(
             f"✅ Deck renamed to *{new_name}* successfully!",
             reply_markup=reply_markup,
-            parse_mode="Markdown"
+            parse_mode="Markdown",
         )
-        
+
         # Update the stored deck name
         context.user_data["selected_deck_name"] = new_name
-        
+
         return AWAITING_DECK_COMMAND
-        
+
     except Exception as e:
         logger.error(f"Error renaming deck: {e}")
         await update.message.reply_text(
@@ -1723,60 +1679,78 @@ async def handle_rename_deck(update: Update, context: CallbackContext) -> int:
 async def handle_delete_deck_confirmation(update: Update, context: CallbackContext) -> int:
     """
     Handle confirmation of deck deletion.
-    
+
     Args:
         update: The update object
         context: The context object
-        
+
     Returns:
         The next conversation state
     """
     query = cast(CallbackQuery, update.callback_query)
     await query.answer()
-    
+
     callback_data = query.data
     user_id = str(update.effective_user.id)
-    
+
     # User cancelled deletion
     if callback_data.startswith(DECK_CANCEL_DELETE_PREFIX):
-        deck_id = callback_data[len(DECK_CANCEL_DELETE_PREFIX):]
-        
+        deck_id = callback_data[len(DECK_CANCEL_DELETE_PREFIX) :]
+
         await query.edit_message_text(
             "Deck deletion cancelled. Your deck is safe.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("◀️ Back to Deck", callback_data=f"{DECK_MANAGE_PREFIX}{deck_id}")]
-            ])
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "◀️ Back to Deck", callback_data=f"{DECK_MANAGE_PREFIX}{deck_id}"
+                        )
+                    ]
+                ]
+            ),
         )
-        
+
         return AWAITING_DECK_COMMAND
-    
+
     # User confirmed deletion
     if callback_data.startswith(DECK_CONFIRM_DELETE_PREFIX):
-        deck_id = callback_data[len(DECK_CONFIRM_DELETE_PREFIX):]
+        deck_id = callback_data[len(DECK_CONFIRM_DELETE_PREFIX) :]
         deck_name = context.user_data.get("selected_deck_name", "Unknown deck")
-        
+
         # Delete the deck
         deck_service = _get_deck_service()
-        
+
         try:
             success = deck_service.delete_deck(deck_id)
-            
+
             if success:
                 await query.edit_message_text(
                     f"✅ Deck *{deck_name}* has been deleted.",
                     parse_mode="Markdown",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("◀️ Back to Decks", callback_data=f"{DECK_LIST_PREFIX}back")]
-                    ])
+                    reply_markup=InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "◀️ Back to Decks", callback_data=f"{DECK_LIST_PREFIX}back"
+                                )
+                            ]
+                        ]
+                    ),
                 )
             else:
                 await query.edit_message_text(
                     "Sorry, there was an error deleting the deck.",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("◀️ Back to Decks", callback_data=f"{DECK_LIST_PREFIX}back")]
-                    ])
+                    reply_markup=InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "◀️ Back to Decks", callback_data=f"{DECK_LIST_PREFIX}back"
+                                )
+                            ]
+                        ]
+                    ),
                 )
-            
+
             # Clean up user data
             if "selected_deck_id" in context.user_data:
                 del context.user_data["selected_deck_id"]
@@ -1784,26 +1758,32 @@ async def handle_delete_deck_confirmation(update: Update, context: CallbackConte
                 del context.user_data["selected_deck_name"]
             if "delete_deck_id" in context.user_data:
                 del context.user_data["delete_deck_id"]
-            
+
             return AWAITING_DECK_COMMAND
-            
+
         except Exception as e:
             logger.error(f"Error deleting deck: {e}")
             await query.edit_message_text(
                 "Sorry, there was an error deleting your deck. Please try again.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("◀️ Back to Decks", callback_data=f"{DECK_LIST_PREFIX}back")]
-                ])
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "◀️ Back to Decks", callback_data=f"{DECK_LIST_PREFIX}back"
+                            )
+                        ]
+                    ]
+                ),
             )
             return AWAITING_DECK_COMMAND
-    
+
     # Unknown callback data
     logger.warning(f"Unknown callback data in deck deletion confirmation: {callback_data}")
     await query.edit_message_text(
         "Sorry, something went wrong. Please try again.",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("◀️ Back to Decks", callback_data=f"{DECK_LIST_PREFIX}back")]
-        ])
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("◀️ Back to Decks", callback_data=f"{DECK_LIST_PREFIX}back")]]
+        ),
     )
     return AWAITING_DECK_COMMAND
 
@@ -1811,100 +1791,103 @@ async def handle_delete_deck_confirmation(update: Update, context: CallbackConte
 async def handle_move_card_selection(update: Update, context: CallbackContext) -> int:
     """
     Handle selection of a card to move between decks.
-    
+
     Args:
         update: The update object
         context: The context object
-        
+
     Returns:
         The next conversation state
     """
     query = cast(CallbackQuery, update.callback_query)
     await query.answer()
-    
+
     callback_data = query.data
     user_id = str(update.effective_user.id)
-    
+
     # Check if the user wants to cancel
     if callback_data.startswith(CANCEL_PREFIX):
         await query.edit_message_text("Card move operation cancelled.")
         return ConversationHandler.END
-    
+
     # Check if user wants to go back to deck management
     if callback_data.startswith(DECK_MANAGE_PREFIX):
-        deck_id = callback_data[len(DECK_MANAGE_PREFIX):]
+        deck_id = callback_data[len(DECK_MANAGE_PREFIX) :]
         # Clear any move-related data
         for key in ["source_deck_id", "source_deck_name", "card_to_move_id"]:
             if key in context.user_data:
                 del context.user_data[key]
-                
+
         # Redirect to deck management
         return await handle_deck_command(update, context)
-    
+
     # User selected a card to move
     if callback_data.startswith(DECK_MOVE_CARD_PREFIX):
-        card_id = callback_data[len(DECK_MOVE_CARD_PREFIX):]
+        card_id = callback_data[len(DECK_MOVE_CARD_PREFIX) :]
         source_deck_id = context.user_data.get("source_deck_id")
-        
+
         if not source_deck_id:
             await query.edit_message_text("Sorry, I couldn't find the source deck.")
             return ConversationHandler.END
-        
+
         # Store the card ID to move
         context.user_data["card_to_move_id"] = card_id
-        
+
         # Get the flashcard details
         deck_service = _get_deck_service()
         flashcard_repo = deck_service.flashcard_repo
         card = flashcard_repo.get(card_id)
-        
+
         if not card:
             await query.edit_message_text("Sorry, I couldn't find the card you selected.")
             return ConversationHandler.END
-        
+
         # Store card front for reference
         context.user_data["card_to_move_front"] = card.front
-        
+
         # Get all decks except the source deck
         decks = deck_service.get_user_decks(user_id)
         target_decks = [deck for deck in decks if deck.id != source_deck_id]
-        
+
         if not target_decks:
             await query.edit_message_text(
                 "You don't have any other decks to move this card to. "
                 "Please create another deck first."
             )
             return ConversationHandler.END
-        
+
         # Create a keyboard with target decks
         keyboard = []
         for deck in target_decks:
-            keyboard.append([
-                InlineKeyboardButton(deck.name, callback_data=f"{DECK_PREFIX}{deck.id}")
-            ])
-        
+            keyboard.append(
+                [InlineKeyboardButton(deck.name, callback_data=f"{DECK_PREFIX}{deck.id}")]
+            )
+
         # Add back and cancel buttons
-        keyboard.append([
-            InlineKeyboardButton("◀️ Back", callback_data=f"{DECK_MOVE_CARD_PREFIX}{source_deck_id}")
-        ])
-        keyboard.append([
-            InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}move_card_target")
-        ])
-        
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    "◀️ Back", callback_data=f"{DECK_MOVE_CARD_PREFIX}{source_deck_id}"
+                )
+            ]
+        )
+        keyboard.append(
+            [InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}move_card_target")]
+        )
+
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         # Truncate card text if too long
         card_text = card.front[:50] + ("..." if len(card.front) > 50 else "")
-        
+
         await query.edit_message_text(
-            f"Select a destination deck for card:\n"
-            f"*{card_text}*",
+            f"Select a destination deck for card:\n" f"*{card_text}*",
             reply_markup=reply_markup,
-            parse_mode="Markdown"
+            parse_mode="Markdown",
         )
-        
+
         return AWAITING_DECK_MOVE_TARGET_SELECTION
-    
+
     # Unknown callback data
     logger.warning(f"Unknown callback data in move card selection: {callback_data}")
     await query.edit_message_text("Sorry, something went wrong. Please try again.")
@@ -1914,133 +1897,142 @@ async def handle_move_card_selection(update: Update, context: CallbackContext) -
 async def handle_move_card_target_selection(update: Update, context: CallbackContext) -> int:
     """
     Handle selection of a target deck for moving a card.
-    
+
     Args:
         update: The update object
         context: The context object
-        
+
     Returns:
         The next conversation state
     """
     query = cast(CallbackQuery, update.callback_query)
     await query.answer()
-    
+
     callback_data = query.data
     user_id = str(update.effective_user.id)
-    
+
     # Check if the user wants to cancel
     if callback_data.startswith(CANCEL_PREFIX):
         await query.edit_message_text("Card move operation cancelled.")
         return ConversationHandler.END
-    
+
     # Check if user wants to go back to card selection
     if callback_data.startswith(DECK_MOVE_CARD_PREFIX):
-        source_deck_id = callback_data[len(DECK_MOVE_CARD_PREFIX):]
+        source_deck_id = callback_data[len(DECK_MOVE_CARD_PREFIX) :]
         # Clear the selected card
         if "card_to_move_id" in context.user_data:
             del context.user_data["card_to_move_id"]
         if "card_to_move_front" in context.user_data:
             del context.user_data["card_to_move_front"]
-            
+
         # Go back to card selection from source deck
         deck_service = _get_deck_service()
         source_deck = deck_service.get_deck_with_cards(source_deck_id)
-        
+
         if not source_deck or not source_deck.cards:
-            await query.edit_message_text(
-                "This deck doesn't exist or has no cards to move."
-            )
+            await query.edit_message_text("This deck doesn't exist or has no cards to move.")
             return ConversationHandler.END
-        
+
         # Create a keyboard with all cards from the source deck
         keyboard = []
         for card in source_deck.cards:
             # Truncate card text if too long
             card_text = card.front[:30] + ("..." if len(card.front) > 30 else "")
-            keyboard.append([
-                InlineKeyboardButton(card_text, callback_data=f"{DECK_MOVE_CARD_PREFIX}{card.id}")
-            ])
-        
+            keyboard.append(
+                [InlineKeyboardButton(card_text, callback_data=f"{DECK_MOVE_CARD_PREFIX}{card.id}")]
+            )
+
         # Add back and cancel buttons
-        keyboard.append([
-            InlineKeyboardButton("◀️ Back", callback_data=f"{DECK_MANAGE_PREFIX}{source_deck_id}")
-        ])
-        keyboard.append([
-            InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}move_cards")
-        ])
-        
+        keyboard.append(
+            [InlineKeyboardButton("◀️ Back", callback_data=f"{DECK_MANAGE_PREFIX}{source_deck_id}")]
+        )
+        keyboard.append(
+            [InlineKeyboardButton("❌ Cancel", callback_data=f"{CANCEL_PREFIX}move_cards")]
+        )
+
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         await query.edit_message_text(
             f"Select a card from *{source_deck.name}* to move:",
             reply_markup=reply_markup,
-            parse_mode="Markdown"
+            parse_mode="Markdown",
         )
-        
+
         return AWAITING_DECK_MOVE_CARD_SELECTION
-    
+
     # User selected a target deck
     if callback_data.startswith(DECK_PREFIX):
-        target_deck_id = callback_data[len(DECK_PREFIX):]
+        target_deck_id = callback_data[len(DECK_PREFIX) :]
         card_id = context.user_data.get("card_to_move_id")
         source_deck_id = context.user_data.get("source_deck_id")
         card_front = context.user_data.get("card_to_move_front", "selected card")
-        
+
         if not card_id or not source_deck_id:
             await query.edit_message_text("Sorry, I couldn't find the card or source deck.")
             return ConversationHandler.END
-        
+
         # Move the card to the target deck
         deck_service = _get_deck_service()
-        
+
         try:
             # Get deck names for the message
             source_deck = deck_service.get_deck_with_cards(source_deck_id)
             target_deck = deck_service.get_deck_with_cards(target_deck_id)
-            
+
             if not source_deck or not target_deck:
                 await query.edit_message_text("Sorry, one of the decks no longer exists.")
                 return ConversationHandler.END
-            
+
             # Move the card
             moved_card = deck_service.move_card_to_deck(card_id, target_deck_id)
-            
+
             # Create a keyboard to go back
             keyboard = [
-                [InlineKeyboardButton("◀️ Back to Source Deck", callback_data=f"{DECK_MANAGE_PREFIX}{source_deck_id}")],
+                [
+                    InlineKeyboardButton(
+                        "◀️ Back to Source Deck",
+                        callback_data=f"{DECK_MANAGE_PREFIX}{source_deck_id}",
+                    )
+                ],
                 [InlineKeyboardButton("📚 All Decks", callback_data=f"{DECK_LIST_PREFIX}back")],
-                [InlineKeyboardButton("❌ Close", callback_data=f"{CANCEL_PREFIX}after_move")]
+                [InlineKeyboardButton("❌ Close", callback_data=f"{CANCEL_PREFIX}after_move")],
             ]
-            
+
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
+
             # Truncate card text if too long
             card_text = card_front[:30] + ("..." if len(card_front) > 30 else "")
-            
+
             await query.edit_message_text(
                 f"✅ Card *{card_text}* moved successfully from "
                 f"*{source_deck.name}* to *{target_deck.name}*.",
                 reply_markup=reply_markup,
-                parse_mode="Markdown"
+                parse_mode="Markdown",
             )
-            
+
             # Clean up user data
             for key in ["card_to_move_id", "card_to_move_front"]:
                 if key in context.user_data:
                     del context.user_data[key]
-            
+
             return AWAITING_DECK_COMMAND
-            
+
         except Exception as e:
             logger.error(f"Error moving card: {e}")
             await query.edit_message_text(
                 "Sorry, there was an error moving the card. Please try again.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("◀️ Back to Decks", callback_data=f"{DECK_LIST_PREFIX}back")]
-                ])
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "◀️ Back to Decks", callback_data=f"{DECK_LIST_PREFIX}back"
+                            )
+                        ]
+                    ]
+                ),
             )
             return AWAITING_DECK_COMMAND
-    
+
     # Unknown callback data
     logger.warning(f"Unknown callback data in move target selection: {callback_data}")
     await query.edit_message_text("Sorry, something went wrong. Please try again.")

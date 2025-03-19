@@ -5,17 +5,17 @@ This module contains the classes and functions for different flashcard training
 modes, review session management, and integration with the SRS system.
 """
 
-import random
 import datetime
 import logging
+import random
 import re
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import List, Dict, Any, Optional, Tuple, Union, Set, Coroutine
+from typing import Any, Coroutine, Dict, List, Optional, Set, Tuple, Union
 
-from src.models import Flashcard, Deck
-from src.srs import SRSEngine, RecallScore
 from src.llm import LLMClient
+from src.models import Deck, Flashcard
+from src.srs import RecallScore, SRSEngine
 
 logger = logging.getLogger("ankichat")
 
@@ -79,9 +79,7 @@ class ReviewSession:
         # Cards that have been reviewed in this session
         self.reviewed_cards: List[Tuple[Flashcard, int]] = []  # (card, score)
 
-        logger.info(
-            f"Created review session for deck {deck_id} with mode {training_mode.value}"
-        )
+        logger.info(f"Created review session for deck {deck_id} with mode {training_mode.value}")
 
     def load_due_cards(self, cards: List[Flashcard]) -> None:
         """
@@ -91,9 +89,7 @@ class ReviewSession:
             cards: List of cards from the deck
         """
         # Filter for due cards
-        due_cards = [
-            card for card in cards if SRSEngine.is_due(card, self.current_time)
-        ]
+        due_cards = [card for card in cards if SRSEngine.is_due(card, self.current_time)]
 
         # Prioritize new cards (those that have never been reviewed)
         new_cards = [card for card in due_cards if card.review_count == 0]
@@ -108,14 +104,12 @@ class ReviewSession:
         # Limit to max cards
         self.queue = self.queue[: self.max_cards]
 
-        logger.info(
-            f"Loaded {len(self.queue)} due cards out of {len(cards)} total cards"
-        )
+        logger.info(f"Loaded {len(self.queue)} due cards out of {len(cards)} total cards")
 
     async def next_card(self) -> Optional[Dict[str, Any]]:
         """
         Get the next card to review and prepare it according to the training mode.
-        
+
         Note: This is an async method because it may need to call async prepare_card methods.
 
         Returns:
@@ -129,7 +123,7 @@ class ReviewSession:
         self.current_card = self.queue.pop(0)
 
         # Check if we have a pre-initialized trainer (set by the service)
-        if hasattr(self, '_pre_initialized_trainer') and self._pre_initialized_trainer:
+        if hasattr(self, "_pre_initialized_trainer") and self._pre_initialized_trainer:
             # Use the pre-initialized trainer that should have the LLM client set
             # Update it with the current card
             self._pre_initialized_trainer.card = self.current_card
@@ -155,11 +149,12 @@ class ReviewSession:
             # Check if this is an async method that needs to be awaited
             # Force certain trainer types to always use await
             trainer_type = type(self.current_trainer).__name__
-            is_async = (trainer_type == "FillInBlankTrainer" or 
-                      hasattr(self.current_trainer.prepare_card, "__await__"))
-            
+            is_async = trainer_type == "FillInBlankTrainer" or hasattr(
+                self.current_trainer.prepare_card, "__await__"
+            )
+
             logger.info(f"Trainer prepare_card is async: {is_async}, trainer type: {trainer_type}")
-            
+
             if is_async:
                 # It's an async method, so await it
                 logger.info("Awaiting async prepare_card method")
@@ -170,7 +165,7 @@ class ReviewSession:
                 logger.info("Calling sync prepare_card method")
                 card_data = self.current_trainer.prepare_card()
                 logger.info("Sync prepare_card completed")
-            
+
             logger.info(
                 f"Prepared card {self.current_card.id} for review in {self.training_mode.value} mode"
             )
@@ -179,25 +174,23 @@ class ReviewSession:
             # If an error occurs in the prepare_card method (especially for fill-in-blank mode without LLM)
             logger.error(f"Error preparing card in {self.training_mode.value} mode: {e}")
             logger.exception("Full exception traceback:")
-            
+
             # For FillInBlank mode specifically, we'll return an error message
             if self.training_mode == TrainingMode.FILL_IN_BLANK:
                 logger.info("Returning error mode response for FillInBlank mode")
                 return {
                     "error": f"Fill-in-blank mode requires LLM but none is available: {e}",
-                    "mode": "error"
+                    "mode": "error",
                 }
-            
+
             # For other modes, we'll fall back to the standard mode
             logger.info("Falling back to StandardTrainer")
             self.current_trainer = StandardTrainer(self.current_card)
             # Standard trainer has a synchronous prepare_card
             logger.info("Calling StandardTrainer.prepare_card()")
             card_data = self.current_trainer.prepare_card()
-            
-            logger.info(
-                f"Fell back to standard mode for card {self.current_card.id}"
-            )
+
+            logger.info(f"Fell back to standard mode for card {self.current_card.id}")
             return card_data
 
     async def process_answer(self, answer: str) -> Dict[str, Any]:
@@ -218,9 +211,9 @@ class ReviewSession:
         trainer_type = type(self.current_trainer).__name__
         # Check if evaluate_answer is async
         is_async = hasattr(self.current_trainer.evaluate_answer, "__await__")
-        
+
         logger.info(f"Trainer evaluate_answer is async: {is_async}, trainer type: {trainer_type}")
-        
+
         if is_async:
             # It's an async method, so await it
             logger.info("Awaiting async evaluate_answer method")
@@ -231,7 +224,7 @@ class ReviewSession:
             logger.info("Calling sync evaluate_answer method")
             result = self.current_trainer.evaluate_answer(answer)
             logger.info("Sync evaluate_answer completed")
-            
+
         score = result["score"]
 
         # Update SRS data based on the score
@@ -255,7 +248,6 @@ class ReviewSession:
             "correct": self.correct_answers,
             "incorrect": self.incorrect_answers,
         }
-
 
         logger.info(f"Processed answer for card {self.current_card.id}, score: {score}")
 
@@ -284,9 +276,7 @@ class ReviewSession:
             "correct_answers": self.correct_answers,
             "incorrect_answers": self.incorrect_answers,
             "accuracy": (
-                0
-                if self.cards_reviewed == 0
-                else self.correct_answers / self.cards_reviewed
+                0 if self.cards_reviewed == 0 else self.correct_answers / self.cards_reviewed
             ),
         }
 
@@ -316,21 +306,23 @@ class CardTrainer(ABC):
     def prepare_card(self) -> Union[Dict[str, Any], Coroutine[Any, Any, Dict[str, Any]]]:
         """
         Prepare the card for review according to the training mode.
-        
+
         This method may be implemented as either synchronous or asynchronous.
         Subclasses should implement it according to their needs.
-        
+
         Returns:
-            Dictionary with card data for presentation, 
+            Dictionary with card data for presentation,
             or a coroutine that resolves to such a dictionary
         """
         pass
 
     @abstractmethod
-    def evaluate_answer(self, answer: str) -> Union[Dict[str, Any], Coroutine[Any, Any, Dict[str, Any]]]:
+    def evaluate_answer(
+        self, answer: str
+    ) -> Union[Dict[str, Any], Coroutine[Any, Any, Dict[str, Any]]]:
         """
         Evaluate the user's answer and determine the recall score.
-        
+
         This method may be implemented as either synchronous or asynchronous.
         Subclasses should implement it according to their needs.
 
@@ -428,7 +420,9 @@ class FillInBlankTrainer(CardTrainer):
         self.llm_client = llm_client
         # Default for testing
         self.blanked_term = card.front.strip()
-        logger.info(f"FillInBlankTrainer initialized with card {card.id if hasattr(card, 'id') else 'N/A'}, LLM client: {llm_client is not None}")
+        logger.info(
+            f"FillInBlankTrainer initialized with card {card.id if hasattr(card, 'id') else 'N/A'}, LLM client: {llm_client is not None}"
+        )
 
     async def prepare_card(self) -> Dict[str, Any]:
         """
@@ -436,13 +430,15 @@ class FillInBlankTrainer(CardTrainer):
 
         If an LLM client is available, it will use it to generate a more natural sentence.
         Otherwise, it will create a basic fill-in-blank from the card content.
-        
+
         Note: This is an async method because it may need to call the LLM API.
 
         Returns:
             Dictionary with card data for fill-in-blank mode
         """
-        logger.info(f"FillInBlankTrainer.prepare_card STARTED for card {self.card.id if hasattr(self.card, 'id') else 'N/A'}")
+        logger.info(
+            f"FillInBlankTrainer.prepare_card STARTED for card {self.card.id if hasattr(self.card, 'id') else 'N/A'}"
+        )
         # Special handling for testing environment where we need to support tests without LLM
         # This is ONLY for test purposes and proper usage should always provide an LLM client
         if "Paris is the capital of France" in self.card.back:
@@ -459,17 +455,19 @@ class FillInBlankTrainer(CardTrainer):
             }
             logger.info("FillInBlankTrainer.prepare_card COMPLETED with test data")
             return result
-        
+
         # Check for testing environment more broadly
         if "test" in self.card.back.lower():
             # Other test cases should also be handled
             logger.info("FillInBlankTrainer.prepare_card using generic TEST DATA")
             self.blanked_term = self.card.front
-            example_text = f"•Example:• Fill in the blank: The term ____________ refers to this concept."
+            example_text = (
+                f"•Example:• Fill in the blank: The term ____________ refers to this concept."
+            )
             result = {
                 "mode": TrainingMode.FILL_IN_BLANK.value,
                 "front": self.card.front,
-                "blanked_content": example_text, 
+                "blanked_content": example_text,
                 "blanked_term": self.blanked_term,
                 "prompt": "Fill in the blank with the missing word:",
             }
@@ -503,7 +501,9 @@ class FillInBlankTrainer(CardTrainer):
                     "blanked_term": self.blanked_term,
                     "prompt": "Fill in the blank with the missing word:",
                 }
-                logger.info(f"FillInBlankTrainer.prepare_card COMPLETED successfully with LLM for card {self.card.id if hasattr(self.card, 'id') else 'N/A'}")
+                logger.info(
+                    f"FillInBlankTrainer.prepare_card COMPLETED successfully with LLM for card {self.card.id if hasattr(self.card, 'id') else 'N/A'}"
+                )
                 return result
             except Exception as e:
                 logger.error(f"Error generating fill-in-blank content with LLM: {e}")
@@ -512,7 +512,7 @@ class FillInBlankTrainer(CardTrainer):
         else:
             error_msg = "No LLM client available for generating fill-in-blank content"
             logger.error(error_msg)
-            
+
             # Raise exception for fill-in-blank mode when no LLM is available
             # This will be caught by the ReviewSession and handled properly
             logger.info("FillInBlankTrainer.prepare_card FAILED due to missing LLM client")
@@ -663,8 +663,6 @@ class MultipleChoiceTrainer(CardTrainer):
                 distractors.append(distractor)
 
         return distractors
-
-
 
 
 async def get_training_mode_explanation(mode: TrainingMode) -> str:

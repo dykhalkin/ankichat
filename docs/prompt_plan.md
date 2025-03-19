@@ -132,3 +132,63 @@ Enhance the Telegram bot UI/UX to provide a smooth, minimal interface:
 
 The focus here is to ensure a seamless user experience and logical wiring of commands.
 ```
+
+Testing and code quality
+```
+Project Prompt 10:
+Ensure that the code is well-tested and of high quality.
+
+1. **Unit Testing:**
+   - Use pytest for testing.
+   - Ensure that the tests are comprehensive and cover all edge cases.
+   - Write integration tests for the Telegram bot commands.
+   - Use asyncio_mode=strict for testing.
+2. **Code Quality:**
+   - Use black for code formatting.
+   - Use flake8 for linting.
+   - Use mypy for type checking.
+   - Use isort for sorting imports.
+   - Use pytest-cov for coverage reporting.
+   - Use pytest-asyncio for testing async code.
+```
+
+CI/CD Strategy
+```
+Project Prompt 11:
+You are tasked with implementing a full CI/CD strategy using GitHub CI (GitHub Actions) for the Telegram Anki Flashcards System. Your work should include:
+
+1. **GitHub Actions Workflow:**
+   - Create a workflow YAML file (e.g., `.github/workflows/ci.yml`) that triggers on pushes to the `main` branch.
+   - The workflow should perform the following steps:
+     - **Checkout:** Pull the latest code from the repository.
+     - **Environment Setup:** Set up Python (specify the desired version) and install all dependencies from `requirements.txt`.
+     - **Testing:** Run all tests (using `pytest` or a similar framework) to ensure code integrity.
+     - **Linting/Static Analysis:** (Optional) Run linters such as `flake8` to maintain code quality.
+     - **Deployment:**
+       - Use an SSH action to connect to an Ubuntu server.
+       - Execute a remote deployment script (detailed in the next section) that updates the application.
+       - Ensure secure transfer of any necessary secrets (SSH keys, server credentials) via GitHub Secrets.
+
+2. **Bash Deployment Script:**
+   - Create a Bash script (e.g., `deploy.sh`) that deploys the application as a Unix service on an Ubuntu server.
+   - The script should perform the following actions:
+     - **Service Setup:**
+       - Copy or update the project files to a designated directory on the server.
+       - Create or update a systemd service file (e.g., `/etc/systemd/system/telegram-anki.service`) with the correct settings to run the bot (pointing to the Python interpreter, virtual environment, and the main bot file).
+     - **Service Management:**
+       - Reload the systemd daemon to pick up any changes.
+       - Enable and restart the service.
+     - **Error Handling & Logging:**
+       - Include error handling and log messages for each major step.
+   - The script should be idempotent so that repeated deployments do not break the service.
+
+3. **Documentation & Comments:**
+   - Ensure that both the GitHub Actions workflow and the Bash script include clear inline comments and documentation.
+   - The instructions should explain the purpose of each step and best practices for secure, incremental deployments.
+
+Your final output should include:
+- A GitHub Actions workflow YAML file with all the described steps.
+- A complete Bash script for deploying the Telegram Anki Flashcards System as a Unix service on an Ubuntu server.
+
+Make sure to follow best practices in CI/CD and systemd service configuration. The deployment process must be secure, automated, and easily reproducible.
+```

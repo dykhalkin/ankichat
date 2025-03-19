@@ -2,15 +2,16 @@
 Tests for CSV import/export functionality.
 """
 
+import csv
 import os
 import tempfile
-import csv
-import pytest
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
-from src.models import Flashcard, Deck
-from src.csv_manager import CSVManager, FLASHCARD_CSV_HEADERS
+import pytest
+
+from src.csv_manager import FLASHCARD_CSV_HEADERS, CSVManager
+from src.models import Deck, Flashcard
 from src.repository import DeckRepository, FlashcardRepository
 
 
@@ -208,8 +209,8 @@ class TestCSVManager:
                 writer.writerow(card)
 
         # Execute import
-        cards_imported, decks_created, warnings = (
-            csv_manager.import_flashcards_from_csv(csv_path, "user-123", None, True)
+        cards_imported, decks_created, warnings = csv_manager.import_flashcards_from_csv(
+            csv_path, "user-123", None, True
         )
 
         # Verify

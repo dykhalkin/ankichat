@@ -7,13 +7,13 @@ This standalone script imports flashcards from a CSV file into the AnkiChat data
 
 import argparse
 import csv
-import os
-import sys
-import logging
 import datetime
-import uuid
+import logging
+import os
 import sqlite3
-from typing import List, Dict, Optional, Tuple
+import sys
+import uuid
+from typing import Dict, List, Optional, Tuple
 
 # Configure logging
 logging.basicConfig(
@@ -49,9 +49,7 @@ def list_available_decks(conn: sqlite3.Connection, user_id: str) -> List[Dict]:
     for row in rows:
         # Get number of cards in this deck
         card_cursor = conn.cursor()
-        card_cursor.execute(
-            "SELECT COUNT(*) FROM flashcards WHERE deck_id = ?", (row[0],)
-        )
+        card_cursor.execute("SELECT COUNT(*) FROM flashcards WHERE deck_id = ?", (row[0],))
         card_count = card_cursor.fetchone()[0]
 
         decks.append(
@@ -81,9 +79,7 @@ def list_available_decks(conn: sqlite3.Connection, user_id: str) -> List[Dict]:
     return decks
 
 
-def create_deck_if_needed(
-    conn: sqlite3.Connection, user_id: str, deck_name: str
-) -> str:
+def create_deck_if_needed(conn: sqlite3.Connection, user_id: str, deck_name: str) -> str:
     """
     Create a new deck if one with the given name doesn't exist.
 
@@ -98,9 +94,7 @@ def create_deck_if_needed(
     cursor = conn.cursor()
 
     # Check if a deck with this name already exists
-    cursor.execute(
-        "SELECT id FROM decks WHERE user_id = ? AND name = ?", (user_id, deck_name)
-    )
+    cursor.execute("SELECT id FROM decks WHERE user_id = ? AND name = ?", (user_id, deck_name))
     row = cursor.fetchone()
 
     if row:
@@ -182,9 +176,7 @@ def import_csv(
 
                     # Back side is all remaining columns joined
                     back_parts = [part.strip() for part in row[1:] if part.strip()]
-                    back = (
-                        "\n\n".join(back_parts) if back_parts else "No details provided"
-                    )
+                    back = "\n\n".join(back_parts) if back_parts else "No details provided"
 
                     # Create the flashcard
                     card_id = str(uuid.uuid4())
@@ -258,15 +250,9 @@ def main():
     """Main entry point for the CSV importer application."""
     parser = argparse.ArgumentParser(description="Import flashcards from CSV file")
     parser.add_argument("file", help="Path to the CSV file to import")
-    parser.add_argument(
-        "--user", "-u", required=True, help="User ID to import cards for"
-    )
-    parser.add_argument(
-        "--deck", "-d", help="Optional: Target deck ID to import cards into"
-    )
-    parser.add_argument(
-        "--name", "-n", help="Optional: Create or use a deck with this name"
-    )
+    parser.add_argument("--user", "-u", required=True, help="User ID to import cards for")
+    parser.add_argument("--deck", "-d", help="Optional: Target deck ID to import cards into")
+    parser.add_argument("--name", "-n", help="Optional: Create or use a deck with this name")
     parser.add_argument(
         "--list", "-l", action="store_true", help="List available decks before import"
     )
@@ -313,9 +299,7 @@ def main():
 
     # Import the CSV file
     print(f"\nImporting cards from '{args.file}'...")
-    cards_imported, warnings = import_csv(
-        conn, args.file, args.user, args.deck, args.name
-    )
+    cards_imported, warnings = import_csv(conn, args.file, args.user, args.deck, args.name)
 
     # Print results
     print(f"\nImport complete:")

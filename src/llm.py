@@ -5,12 +5,13 @@ This module provides functionality for language detection and
 content generation for flashcards using OpenAI's API.
 """
 
-import logging
 import json
+import logging
 import re
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from openai import AsyncOpenAI
+
 from config import settings
 
 logger = logging.getLogger("ankichat")
@@ -31,7 +32,7 @@ class LLMClient:
             api_key: The OpenAI API key (defaults to settings)
         """
         self.model = model
-        
+
         # Check if API key is provided
         if not api_key:
             logger.warning("No OpenAI API key provided - LLM functionality will be limited")
@@ -43,24 +44,24 @@ class LLMClient:
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI client: {e}")
                 self.client = None
-                
+
     async def detect_category(self, content: str) -> str:
         """
         Detect the appropriate category/deck name for flashcard content.
-        
+
         Args:
             content: The content to analyze
-            
+
         Returns:
             Suggested category/deck name
         """
         logger.debug(f"Detecting category for content: {content[:30]}...")
-        
+
         # Check if client is available
         if not self.client:
             logger.warning("LLM client not initialized - returning default category")
             return "General Knowledge"
-            
+
         try:
             system_prompt = (
                 "You are a categorization expert. Your task is to analyze the flashcard content "
@@ -78,18 +79,18 @@ class LLMClient:
                 max_tokens=50,
                 top_p=1.0,
                 frequency_penalty=0.0,
-                presence_penalty=0.0
+                presence_penalty=0.0,
             )
 
             # Extract response
             category = response.choices[0].message.content.strip()
-            
+
             # Remove quotes if present
             if category.startswith('"') and category.endswith('"'):
                 category = category[1:-1]
             if category.startswith("'") and category.endswith("'"):
                 category = category[1:-1]
-            
+
             # Limit length
             if len(category) > 50:
                 category = category[:50]
@@ -118,7 +119,7 @@ class LLMClient:
         if not self.client:
             logger.warning("LLM client not initialized - returning default language")
             return "en", 1.0  # Default to English with high confidence
-            
+
         try:
             system_prompt = (
                 "You are a language detection expert. Your task is to analyze the input text "
@@ -147,9 +148,7 @@ class LLMClient:
             language_code = result.get("language_code", "en")
             confidence = float(result.get("confidence", 0.5))
 
-            logger.info(
-                f"Detected language: {language_code} with confidence {confidence}"
-            )
+            logger.info(f"Detected language: {language_code} with confidence {confidence}")
             return language_code, confidence
 
         except Exception as e:
@@ -157,9 +156,7 @@ class LLMClient:
             # Default to English if detection fails
             return "en", 0.0
 
-    async def generate_flashcard_content(
-        self, word: str, language_code: str
-    ) -> Dict[str, Any]:
+    async def generate_flashcard_content(self, word: str, language_code: str) -> Dict[str, Any]:
         """
         Generate content for a flashcard based on the word and language.
 
@@ -171,7 +168,7 @@ class LLMClient:
             Dictionary with generated flashcard content
         """
         logger.debug(f"Generating flashcard content for word: {word}")
-        
+
         # Check if client is available
         if not self.client:
             logger.warning("LLM client not initialized - returning basic flashcard content")
@@ -182,7 +179,7 @@ class LLMClient:
                 "example_sentence": f"Example sentence with {word}.",
                 "pronunciation_guide": "N/A",
                 "part_of_speech": "N/A",
-                "notes": "LLM functionality is not available"
+                "notes": "LLM functionality is not available",
             }
 
         try:
@@ -197,9 +194,7 @@ class LLMClient:
                 "- notes: Any additional information that would be helpful for learning\n"
             )
 
-            user_prompt = (
-                f"Create a flashcard for the {language_code} word or phrase: {word}"
-            )
+            user_prompt = f"Create a flashcard for the {language_code} word or phrase: {word}"
 
             response = await self.client.chat.completions.create(
                 model=self.model,
@@ -265,7 +260,7 @@ class LLMClient:
                 f"Your answer was: {user_answer}\n\n"
                 f"Try to remember the key details from the flashcard."
             )
-        
+
         try:
             system_prompt = (
                 "You are a helpful tutor explaining flashcard answers. "
@@ -308,9 +303,7 @@ class LLMClient:
                 f"Try to remember the key details from the flashcard."
             )
 
-    async def generate_fill_in_blank(
-        self, card_front: str, card_back: str
-    ) -> Tuple[str, str]:
+    async def generate_fill_in_blank(self, card_front: str, card_back: str) -> Tuple[str, str]:
         """
         Generate a fill-in-the-blank sentence for a flashcard.
 
@@ -325,7 +318,7 @@ class LLMClient:
             A tuple of (blanked_sentence, term_to_blank)
         """
         logger.debug(f"Generating fill-in-blank for: {card_front}")
-        
+
         # Check if client is available
         if not self.client:
             logger.error("LLM client not initialized - cannot generate fill-in-blank")

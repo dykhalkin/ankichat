@@ -3,6 +3,7 @@ Configuration settings for the Telegram Anki Flashcards System.
 """
 
 import os
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
