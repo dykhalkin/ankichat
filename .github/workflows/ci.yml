@@ -1,0 +1,72 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  test-and-lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run all quality checks
+      run: |
+        python run_quality_checks.py --all --coverage
+    
+    - name: Archive code coverage results
+      uses: actions/upload-artifact@v3
+      with:
+        name: code-coverage-report
+        path: htmlcov/
+        retention-days: 7
+
+  deploy:
+    needs: test-and-lint
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to production server
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.DEPLOY_HOST }}
+        username: ${{ secrets.DEPLOY_USER }}
+        key: ${{ secrets.DEPLOY_KEY }}
+        script_stop: true
+        envs: TELEGRAM_BOT_TOKEN,DB_PATH,LOG_LEVEL,LOG_FILE,OPENAI_API_KEY
+        environment: |
+          TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+          DB_PATH=${{ secrets.DB_PATH || '/home/ankichat/data/ankichat.db' }}
+          LOG_LEVEL=${{ vars.LOG_LEVEL || 'INFO' }}
+          LOG_FILE=${{ vars.LOG_FILE || '/var/log/ankichat/app.log' }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || '' }}
+        script: |
+          # Create a temporary directory for deployment
+          TEMP_DIR=$(mktemp -d)
+          
+          # Clone the repository to the temporary directory
+          git clone https://github.com/breathman/ankichat.git $TEMP_DIR
+          
+          # Run the deployment script with environment variables
+          cd $TEMP_DIR
+          bash deploy.sh
+          
+          # Clean up
+          rm -rf $TEMP_DIR

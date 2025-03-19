@@ -141,7 +141,6 @@ Ensure that the code is well-tested and of high quality.
 1. **Unit Testing:**
    - Use pytest for testing.
    - Ensure that the tests are comprehensive and cover all edge cases.
-   - Write integration tests for the Telegram bot commands.
    - Use asyncio_mode=strict for testing.
 2. **Code Quality:**
    - Use black for code formatting.
@@ -161,7 +160,7 @@ You are tasked with implementing a full CI/CD strategy using GitHub CI (GitHub A
    - Create a workflow YAML file (e.g., `.github/workflows/ci.yml`) that triggers on pushes to the `main` branch.
    - The workflow should perform the following steps:
      - **Checkout:** Pull the latest code from the repository.
-     - **Environment Setup:** Set up Python (specify the desired version) and install all dependencies from `requirements.txt`.
+     - **Environment Setup:** Set up Python env using venv and install all dependencies from `requirements.txt`.
      - **Testing:** Run all tests (using `pytest` or a similar framework) to ensure code integrity.
      - **Linting/Static Analysis:** (Optional) Run linters such as `flake8` to maintain code quality.
      - **Deployment:**

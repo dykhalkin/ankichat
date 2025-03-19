@@ -5,17 +5,31 @@
 - Run specific test file: `pytest tests/test_filename.py`
 - Run specific test: `pytest tests/test_filename.py::test_function_name`
 - Run with verbose output: `pytest -v`
-- Check code style: `black .` (install with `pip install black`)
-- Type checking: `mypy src/` (install with `pip install mypy`)
+- Run tests with coverage: `pytest --cov=src --cov-report=html`
+- Check code style: `black .`
+- Sort imports: `isort .`
+- Lint code: `flake8 src tests`
+- Type checking: `mypy src/`
+- Run all quality checks: `./run_quality_checks.py`
+- Run specific checks: `./run_quality_checks.py --format --lint --type-check --test --coverage`
 - Import flashcards from CSV: `python simple_csv_import.py file.csv --user USER_ID [--name "Deck Name"] [--list]`
 
-## Code Style
+## Code Style and Quality
 - **Imports**: Standard library first, third-party next, local modules last
 - **Type Hints**: Always use typing annotations for function parameters and return values
 - **Docstrings**: Use triple-quote docstrings for modules, classes, and functions
 - **Naming**: snake_case for variables/functions, PascalCase for classes, UPPERCASE for constants
 - **Error Handling**: Use try/except with specific exceptions, avoid bare excepts
 - **Async**: Use async/await for all I/O operations; tests configured with asyncio_mode=strict
+
+## Quality Tools
+- **Black**: Line length of 100 characters with consistent formatting
+- **isort**: Compatible with Black formatter, same line length
+- **flake8**: Enforces PEP8 with some exceptions (see .flake8 file)
+- **mypy**: Strict type checking with disallow_untyped_defs=true
+- **pytest**: For unit and integration testing
+- **pytest-cov**: For coverage reporting
+- **pytest-asyncio**: For testing async code with asyncio_mode=strict
 
 ## Architecture
 - Organized in layers: models → repository → services → handlers → bot
@@ -47,3 +61,15 @@
 - Example: `Term,Definition,Additional Info`
 - See docs/csv_import.md for detailed instructions
 - Database schema is checked for tags column before inserting cards
+
+## Requirements and Configuration
+- All project dependencies are listed in `requirements.txt`
+- Development dependencies include:
+  - pytest, pytest-asyncio, pytest-cov (testing)
+  - black, isort, flake8, mypy (code quality)
+- Configuration files:
+  - `pyproject.toml`: Tool configurations for black, isort, mypy, and pytest
+  - `.flake8`: Configuration for flake8 linting rules
+  - `pytest.ini`: Pytest configuration with asyncio_mode=strict
+- Run `run_quality_checks.py` to perform all code quality checks in one command
+- Always run tests and quality checks before submitting pull requests
