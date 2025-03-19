@@ -27,13 +27,6 @@ jobs:
     - name: Run all quality checks
       run: |
         python run_quality_checks.py --all --coverage
-    
-    - name: Archive code coverage results
-      uses: actions/upload-artifact@v3
-      with:
-        name: code-coverage-report
-        path: htmlcov/
-        retention-days: 7
 
   deploy:
     needs: test-and-lint
