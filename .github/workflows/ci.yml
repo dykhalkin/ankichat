@@ -87,6 +87,12 @@ jobs:
         run: |
           ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << EOF
             cd ${{ env.APP_DIR }}
+            export APP_DIR='${{ env.APP_DIR }}'
+            export TELEGRAM_BOT_TOKEN='${{ env.TELEGRAM_BOT_TOKEN }}'
+            export DB_PATH='${{ env.DB_PATH }}'
+            export LOG_LEVEL='${{ env.LOG_LEVEL }}'
+            export LOG_FILE='${{ env.LOG_FILE }}'
+            export OPENAI_API_KEY='${{ env.OPENAI_API_KEY }}'
             echo "Restarting app"
             ./deploy.sh
           EOF
