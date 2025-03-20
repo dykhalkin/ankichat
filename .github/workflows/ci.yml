@@ -84,7 +84,6 @@ jobs:
           LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
           LOG_FILE: ${{ vars.LOG_FILE || '/var/log/ankichat/app.log' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || '' }}
-          APP_DIR: ${{ vars.APP_DIR || '/home/ankichat' }}
         run: |
           ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << EOF
             cd ${{ env.APP_DIR }}
