@@ -90,4 +90,7 @@ jobs:
             OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || '' }}
             APP_DIR=${{ vars.APP_DIR || '/home/ankichat' }}
           script: |
-            ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} "sh ${{ env.APP_DIR }}/deploy.sh"
+            ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << EOF
+              cd ${{ env.APP_DIR }}
+              ./deploy.sh
+            EOF

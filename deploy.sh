@@ -8,6 +8,7 @@ set -e  # Exit immediately if a command exits with a non-zero status
 set -u  # Treat unset variables as an error when substituting
 
 # Configuration Variables
+APP_NAME=ankichat
 VENV_DIR="$APP_DIR/.venv"
 SERVICE_NAME="telegram-anki.service"
 SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
@@ -35,11 +36,6 @@ error() {
 warning() {
     echo -e "${YELLOW}[$(date '+%Y-%m-%d %H:%M:%S')] WARNING: $1${NC}" >&2
 }
-
-# Check if running as root
-if [[ $EUID -ne 0 ]]; then
-   error "This script must be run as root"
-fi
 
 # Create log directory if it doesn't exist
 log "Setting up log directory at $LOG_DIR"
