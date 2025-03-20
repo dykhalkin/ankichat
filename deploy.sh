@@ -71,7 +71,7 @@ if [ ! -f "$APP_DIR/.env" ]; then
 # Update these values with your actual credentials
 
 # Telegram Bot Token (required)
-TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
 
 # Database settings
 DB_PATH=${DB_PATH}

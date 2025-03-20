@@ -79,7 +79,7 @@ jobs:
           SERVER_HOST: ${{ vars.DEPLOY_HOST }}
           SERVER_USER: ${{ vars.DEPLOY_USER }}
           APP_DIR: ${{ vars.APP_DIR }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           DB_PATH: ${{ secrets.DB_PATH || '/home/ankichat/data/ankichat.db' }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
           LOG_FILE: ${{ vars.LOG_FILE || '/var/log/ankichat/app.log' }}
@@ -88,7 +88,7 @@ jobs:
           ssh ${{ env.SERVER_USER }}@${{ env.SERVER_HOST }} << EOF
             cd ${{ env.APP_DIR }}
             export APP_DIR='${{ env.APP_DIR }}'
-            export TELEGRAM_BOT_TOKEN='${{ env.TELEGRAM_BOT_TOKEN }}'
+            export TELEGRAM_TOKEN='${{ env.TELEGRAM_TOKEN }}'
             export DB_PATH='${{ env.DB_PATH }}'
             export LOG_LEVEL='${{ env.LOG_LEVEL }}'
             export LOG_FILE='${{ env.LOG_FILE }}'

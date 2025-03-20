@@ -48,7 +48,7 @@ The following secrets must be set in the GitHub repository settings:
 - `DEPLOY_KEY`: The SSH private key for authentication
 
 ### Application Secrets (Required)
-- `TELEGRAM_BOT_TOKEN`: Your Telegram bot token
+- `TELEGRAM_TOKEN`: Your Telegram bot token
 
 ### Optional Application Secrets
 - `DB_PATH`: Database file path (defaults to `/opt/ankichat/data/ankichat.db`)

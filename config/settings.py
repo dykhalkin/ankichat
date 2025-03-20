@@ -3,16 +3,15 @@ Configuration settings for the Telegram Anki Flashcards System.
 """
 
 import os
-
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
 # Telegram Bot API Token
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN environment variable is not set")
+    raise ValueError("TELEGRAM_TOKEN environment variable is not set")
 
 # OpenAI API Key
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
