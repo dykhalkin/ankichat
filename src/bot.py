@@ -17,7 +17,6 @@ from telegram.ext import (
 
 from config import settings
 from src.handlers import (  # Deck management handlers; Conversation states; Callback prefixes
-    ANSWER_PREFIX,
     AWAITING_ANSWER,
     AWAITING_CARD_TEXT,
     AWAITING_CONFIRMATION,
@@ -33,7 +32,6 @@ from src.handlers import (  # Deck management handlers; Conversation states; Cal
     AWAITING_TRAINING_MODE_SELECTION,
     CANCEL_PREFIX,
     CONFIRM_PREFIX,
-    CONTINUE_PREFIX,
     DECK_BACK_PREFIX,
     DECK_CANCEL_DELETE_PREFIX,
     DECK_CONFIRM_DELETE_PREFIX,
@@ -45,13 +43,9 @@ from src.handlers import (  # Deck management handlers; Conversation states; Cal
     DECK_PREFIX,
     DECK_RENAME_PREFIX,
     EDIT_PREFIX,
-    END_PREFIX,
-    MODE_PREFIX,
-    RATE_PREFIX,
     REVIEWING_CARD,
     cancel_command,
     decks_command,
-    direct_text_handler,
     handle_callback_for_direct_input,
     handle_card_answer,
     handle_create_deck,
@@ -135,8 +129,7 @@ class AnkiChatBot:
         # Register the deck management conversation handler
         self._register_deck_management_handler()
 
-        # Add handler for direct text messages (outside of conversation)
-        self._register_direct_text_handler()
+        # Direct text handler is removed - use only /new command for new card creation
 
         # Register error handler
         self.application.add_error_handler(self._error_handler)
@@ -175,18 +168,7 @@ class AnkiChatBot:
         self.application.add_handler(flashcard_creation_handler, group=-10)
         logger.info("Flashcard creation conversation handler registered")
 
-    def _register_direct_text_handler(self):
-        """Register handler for direct text messages to create flashcards."""
-        # This handler has a lower priority than the conversation handler
-        # and will be used for creating flashcards from direct text messages
-        direct_flashcard_handler = MessageHandler(
-            filters.TEXT & ~filters.COMMAND, direct_text_handler
-        )
-
-        # Use a high positive group number for lowest priority
-        # This ensures it only runs if no conversation handler has matched
-        self.application.add_handler(direct_flashcard_handler, group=100)
-        logger.info("Direct text message handler registered")
+    # Direct text handler removed - using only /new command for creating flashcards
 
     def _register_review_handler(self):
         """Register the conversation handler for flashcard review."""

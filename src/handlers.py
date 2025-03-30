@@ -97,7 +97,6 @@ async def start_command(update: Update, context: CallbackContext) -> None:
         f"• /decks - Manage your decks\n"
         f"• /stats - View your learning statistics\n"
         f"• /help - Get more detailed instructions\n\n"
-        f"You can also simply send any word or phrase to create a flashcard right away!\n\n"
         f"Let's start learning together! 🚀"
     )
 
@@ -118,9 +117,7 @@ async def help_command(update: Update, context: CallbackContext) -> None:
         "• /stats - View your learning statistics\n"
         "• /help - Show this help message\n\n"
         "*Creating Flashcards:*\n"
-        "There are two ways to create flashcards:\n"
-        "1. Just send any word or phrase directly to the bot\n"
-        "2. Use /new and follow the prompts\n\n"
+        "Use the /new command and follow the prompts to create a flashcard\n\n"
         "*Managing Decks:*\n"
         "Use /decks to:\n"
         "• Create new decks\n"
