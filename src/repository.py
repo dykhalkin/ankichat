@@ -9,7 +9,7 @@ import abc
 from typing import List, Optional
 
 from src.database import Database
-from src.models import Deck, Flashcard
+from src.models import Deck, Flashcard, UserPreferences
 
 
 class BaseRepository(abc.ABC):
@@ -147,6 +147,40 @@ class SQLiteFlashcardRepository(FlashcardRepository):
         """Get flashcards due for review."""
         return self.db.get_due_flashcards(user_id, limit)
 
+    def close(self) -> None:
+        """Close the database connection."""
+        pass  # Connection is managed by the Database instance
+        
+        
+class UserPreferencesRepository(BaseRepository):
+    """Repository for user preferences operations."""
+    
+    @abc.abstractmethod
+    def get(self, user_id: str) -> Optional[UserPreferences]:
+        """Get preferences for a user."""
+        pass
+        
+    @abc.abstractmethod
+    def save(self, preferences: UserPreferences) -> UserPreferences:
+        """Save or update user preferences."""
+        pass
+        
+        
+class SQLiteUserPreferencesRepository(UserPreferencesRepository):
+    """SQLite implementation of the UserPreferencesRepository."""
+    
+    def __init__(self, db: Database):
+        """Initialize with a Database instance."""
+        self.db = db
+        
+    def get(self, user_id: str) -> Optional[UserPreferences]:
+        """Get preferences for a user."""
+        return self.db.get_user_preferences(user_id)
+        
+    def save(self, preferences: UserPreferences) -> UserPreferences:
+        """Save or update user preferences."""
+        return self.db.save_user_preferences(preferences)
+        
     def close(self) -> None:
         """Close the database connection."""
         pass  # Connection is managed by the Database instance

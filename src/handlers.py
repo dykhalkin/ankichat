@@ -18,9 +18,13 @@ from telegram.ext import CallbackContext, ConversationHandler
 
 from src.database import Database
 from src.llm import LLMClient
-from src.models import Deck, Flashcard
-from src.repository import SQLiteDeckRepository, SQLiteFlashcardRepository
-from src.services import DeckService, FlashcardService, ReviewService
+from src.models import Deck, Flashcard, UserPreferences
+from src.repository import (
+    SQLiteDeckRepository, 
+    SQLiteFlashcardRepository, 
+    SQLiteUserPreferencesRepository
+)
+from src.services import DeckService, FlashcardService, ReviewService, UserService
 from src.srs import RecallScore
 from src.training import FillInBlankTrainer, TrainingMode, get_training_mode_explanation
 
@@ -100,7 +104,9 @@ async def start_command(update: Update, context: CallbackContext) -> None:
         f"Let's start learning together! 🚀"
     )
 
-    await update.message.reply_text(welcome_message)
+    # Add status bar to show current preferences
+    status_bar = await _get_status_bar(str(user.id))
+    await update.message.reply_text(status_bar + welcome_message, parse_mode="Markdown")
 
 
 async def help_command(update: Update, context: CallbackContext) -> None:
@@ -137,7 +143,9 @@ async def help_command(update: Update, context: CallbackContext) -> None:
         "the better you know a card, the longer until you see it again."
     )
 
-    await update.message.reply_text(help_text, parse_mode="Markdown")
+    # Add status bar to show current preferences
+    status_bar = await _get_status_bar(str(update.effective_user.id))
+    await update.message.reply_text(status_bar + help_text, parse_mode="Markdown")
 
 
 # Flashcard creation handlers
@@ -254,6 +262,18 @@ async def _process_flashcard_input(update: Update, context: CallbackContext) -> 
 
         # Store the preview in the context for later use
         context.user_data["preview"] = preview
+        
+        # Store detected language in user preferences
+        language_info = preview.get("language", {})
+        if language_info and "code" in language_info:
+            language_code = language_info["code"]
+            user_service = _get_user_service()
+            try:
+                user_service.update_preferences(user_id=str(user.id), last_language=language_code)
+                logger.info(f"Updated last used language for user {user.id} to {language_code}")
+            except Exception as e:
+                # Don't fail if preference update fails
+                logger.error(f"Error updating language preference: {e}")
 
         # Format the preview message
         message_text = flashcard_service.format_preview_message(preview)
@@ -275,9 +295,12 @@ async def _process_flashcard_input(update: Update, context: CallbackContext) -> 
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Edit the processing message with the preview
+        # Add status bar to the preview message
+        status_bar = await _get_status_bar(str(user.id))
+        
+        # Edit the processing message with the preview and status bar
         await processing_message.edit_text(
-            message_text, reply_markup=reply_markup, parse_mode="Markdown"
+            status_bar + message_text, reply_markup=reply_markup, parse_mode="Markdown"
         )
 
     except Exception as e:
@@ -397,10 +420,30 @@ async def handle_preview_callback(update: Update, context: CallbackContext) -> i
         # Store the preview ID for later
         context.user_data["confirmed_preview_id"] = preview_id
 
+        # Get user preferences to find last used deck
+        user_service = _get_user_service()
+        user_prefs = user_service.get_user_preferences(user_id)
+        last_deck_id = user_prefs.last_deck_id
+        
         # Create inline keyboard with decks - maximum 3 decks per row for better UX
         keyboard = []
         current_row = []
-
+        
+        # If user has a last used deck, create a special button for quick selection
+        if last_deck_id:
+            # Find the last used deck object
+            last_deck = next((deck for deck in decks if deck.id == last_deck_id), None)
+            
+            if last_deck:
+                # Add "Last Used" special button at the top
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"✨ Last Used: {last_deck.name}", 
+                        callback_data=f"{DECK_PREFIX}{last_deck.id}"
+                    )
+                ])
+        
+        # Add all decks
         for i, deck in enumerate(decks):
             current_row.append(
                 InlineKeyboardButton(deck.name, callback_data=f"{DECK_PREFIX}{deck.id}")
@@ -418,9 +461,12 @@ async def handle_preview_callback(update: Update, context: CallbackContext) -> i
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Ask user to select a deck
+        # Add status bar and ask user to select a deck
+        status_bar = await _get_status_bar(user_id)
         await query.edit_message_text(
-            "Please select a deck for this flashcard:", reply_markup=reply_markup
+            status_bar + "Please select a deck for this flashcard:", 
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
         )
 
         # Update the state for direct conversations
@@ -534,7 +580,10 @@ async def handle_deck_selection(update: Update, context: CallbackContext) -> int
             }
 
             flashcard = await flashcard_service.create_flashcard_from_preview(
-                preview_id=preview_id, deck_id=deck_id, user_edits=user_edits
+                preview_id=preview_id, 
+                deck_id=deck_id, 
+                user_edits=user_edits,
+                user_id=user_id  # Pass user_id to store preferences
             )
 
             # Notify the user
@@ -643,9 +692,30 @@ async def review_command(update: Update, context: CallbackContext) -> int:
             description="Default deck created automatically",
         )
         decks = [default_deck]
-
+        
+    # Get user preferences to find last used deck
+    user_service = _get_user_service()
+    user_prefs = user_service.get_user_preferences(user_id)
+    last_deck_id = user_prefs.last_deck_id
+    
     # Create inline keyboard with decks
     keyboard = []
+    
+    # If user has a last used deck, create a special button for quick selection
+    if last_deck_id:
+        # Find the last used deck object
+        last_deck = next((deck for deck in decks if deck.id == last_deck_id), None)
+        
+        if last_deck:
+            # Add "Last Used" special button at the top
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"✨ Last Used: {last_deck.name}", 
+                    callback_data=f"{DECK_PREFIX}{last_deck.id}"
+                )
+            ])
+    
+    # Add all decks
     for deck in decks:
         keyboard.append([InlineKeyboardButton(deck.name, callback_data=f"{DECK_PREFIX}{deck.id}")])
 
@@ -654,8 +724,11 @@ async def review_command(update: Update, context: CallbackContext) -> int:
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Ask user to select a deck
-    await update.message.reply_text("Please select a deck to review:", reply_markup=reply_markup)
+    # Add status bar and ask user to select a deck
+    status_bar = await _get_status_bar(user_id)
+    await update.message.reply_text(status_bar + "Please select a deck to review:", 
+                                   reply_markup=reply_markup,
+                                   parse_mode="Markdown")
 
     return AWAITING_REVIEW_DECK_SELECTION
 
@@ -688,6 +761,15 @@ async def handle_review_deck_selection(update: Update, context: CallbackContext)
 
         # Store the selected deck_id
         context.user_data["selected_deck_id"] = deck_id
+        
+        # Store this deck as the last used deck in user preferences
+        user_service = _get_user_service()
+        try:
+            user_service.update_preferences(user_id=user_id, last_deck_id=deck_id)
+            logger.info(f"Updated last used deck for user {user_id} to {deck_id}")
+        except Exception as e:
+            # Don't fail the review session if preference update fails
+            logger.error(f"Error updating user preferences: {e}")
 
         # Present training mode options
         keyboard = []
@@ -713,9 +795,10 @@ async def handle_review_deck_selection(update: Update, context: CallbackContext)
         deck = deck_service.deck_repo.get(deck_id)
         deck_name = deck.name if deck else deck_id
 
-        # Ask user to select a training mode
+        # Add status bar and ask user to select a training mode
+        status_bar = await _get_status_bar(user_id)
         await query.edit_message_text(
-            f"You selected deck: *{deck_name}*\n\n" "Please choose a training mode:",
+            status_bar + f"You selected deck: *{deck_name}*\n\n" "Please choose a training mode:",
             reply_markup=reply_markup,
             parse_mode="Markdown",
         )
@@ -1057,7 +1140,9 @@ async def handle_card_answer(update: Update, context: CallbackContext) -> int:
                 f"{cards_complete}/{cards_total} cards reviewed"
             )
 
-            await update.message.reply_text(feedback_message, parse_mode="Markdown")
+            # Add status bar to feedback message
+            status_bar = await _get_status_bar(user_id)
+            await update.message.reply_text(status_bar + feedback_message, parse_mode="Markdown")
 
         # Send the next card
         return await _send_next_card(update, context)
@@ -1132,13 +1217,16 @@ async def _send_next_card(update: Update, context: CallbackContext) -> int:
                 "Great job! Use /review to start a new session."
             )
 
+            # Add status bar to summary message
+            status_bar = await _get_status_bar(user_id)
+            
             # Send the message to the right place
             if update.callback_query:
                 await update.callback_query.edit_message_text(
-                    summary_message, parse_mode="Markdown"
+                    status_bar + summary_message, parse_mode="Markdown"
                 )
             else:
-                await update.message.reply_text(summary_message, parse_mode="Markdown")
+                await update.message.reply_text(status_bar + summary_message, parse_mode="Markdown")
 
             return ConversationHandler.END
         else:
@@ -1201,14 +1289,17 @@ async def _send_next_card(update: Update, context: CallbackContext) -> int:
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Send the message
+        # Add status bar to the message
+        status_bar = await _get_status_bar(user_id)
+        
+        # Send the message with status bar
         if update.callback_query:
             await update.callback_query.edit_message_text(
-                message, reply_markup=reply_markup, parse_mode="Markdown"
+                status_bar + message, reply_markup=reply_markup, parse_mode="Markdown"
             )
         else:
             await update.message.reply_text(
-                message, reply_markup=reply_markup, parse_mode="Markdown"
+                status_bar + message, reply_markup=reply_markup, parse_mode="Markdown"
             )
 
     elif mode == TrainingMode.MULTIPLE_CHOICE.value:
@@ -1240,14 +1331,17 @@ async def _send_next_card(update: Update, context: CallbackContext) -> int:
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Send the message
+        # Add status bar to the message
+        status_bar = await _get_status_bar(user_id)
+        
+        # Send the message with status bar
         if update.callback_query:
             await update.callback_query.edit_message_text(
-                message, reply_markup=reply_markup, parse_mode="Markdown"
+                status_bar + message, reply_markup=reply_markup, parse_mode="Markdown"
             )
         else:
             await update.message.reply_text(
-                message, reply_markup=reply_markup, parse_mode="Markdown"
+                status_bar + message, reply_markup=reply_markup, parse_mode="Markdown"
             )
 
     elif mode == TrainingMode.FILL_IN_BLANK.value:
@@ -1268,14 +1362,17 @@ async def _send_next_card(update: Update, context: CallbackContext) -> int:
         keyboard = [[InlineKeyboardButton("End Session", callback_data=f"{END_PREFIX}session")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Send the message
+        # Add status bar to the message
+        status_bar = await _get_status_bar(user_id)
+        
+        # Send the message with status bar
         if update.callback_query:
             await update.callback_query.edit_message_text(
-                message, reply_markup=reply_markup, parse_mode="Markdown"
+                status_bar + message, reply_markup=reply_markup, parse_mode="Markdown"
             )
         else:
             await update.message.reply_text(
-                message, reply_markup=reply_markup, parse_mode="Markdown"
+                status_bar + message, reply_markup=reply_markup, parse_mode="Markdown"
             )
 
     else:  # Other modes
@@ -1291,14 +1388,17 @@ async def _send_next_card(update: Update, context: CallbackContext) -> int:
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Send the message
+        # Add status bar to the message
+        status_bar = await _get_status_bar(user_id)
+        
+        # Send the message with status bar
         if update.callback_query:
             await update.callback_query.edit_message_text(
-                message, reply_markup=reply_markup, parse_mode="Markdown"
+                status_bar + message, reply_markup=reply_markup, parse_mode="Markdown"
             )
         else:
             await update.message.reply_text(
-                message, reply_markup=reply_markup, parse_mode="Markdown"
+                status_bar + message, reply_markup=reply_markup, parse_mode="Markdown"
             )
 
     return AWAITING_ANSWER
@@ -1345,8 +1445,10 @@ async def decks_command(update: Update, context: CallbackContext) -> int:
     # Count total cards across all decks
     total_cards = sum(len(deck.cards) for deck in decks)
 
+    # Add status bar to deck management screen
+    status_bar = await _get_status_bar(user_id)
     await update.message.reply_text(
-        "📚 *Deck Management*\n\n"
+        status_bar + "📚 *Deck Management*\n\n"
         f"You have {len(decks)} decks with {total_cards} total cards.\n"
         "Choose an option below:",
         reply_markup=reply_markup,
@@ -2039,14 +2141,22 @@ async def handle_move_card_target_selection(update: Update, context: CallbackCon
 # Helper functions
 
 
+def _get_user_service() -> UserService:
+    """Create and return a UserService instance."""
+    db = Database()
+    preferences_repo = SQLiteUserPreferencesRepository(db)
+    return UserService(preferences_repo)
+
+
 def _get_flashcard_service() -> FlashcardService:
     """Create and return a FlashcardService instance."""
     db = Database()
     flashcard_repo = SQLiteFlashcardRepository(db)
     deck_repo = SQLiteDeckRepository(db)
     llm_client = LLMClient()
+    user_service = _get_user_service()
 
-    return FlashcardService(flashcard_repo, deck_repo, llm_client)
+    return FlashcardService(flashcard_repo, deck_repo, llm_client, user_service)
 
 
 def _get_deck_service() -> DeckService:
@@ -2055,8 +2165,9 @@ def _get_deck_service() -> DeckService:
     deck_repo = SQLiteDeckRepository(db)
     flashcard_repo = SQLiteFlashcardRepository(db)
     llm_client = LLMClient()
+    user_service = _get_user_service()
 
-    return DeckService(deck_repo, flashcard_repo, llm_client)
+    return DeckService(deck_repo, flashcard_repo, llm_client, user_service)
 
 
 def _get_review_service() -> ReviewService:
@@ -2083,3 +2194,32 @@ def _format_card_back(content: Dict[str, Any]) -> str:
         back += f"*Notes:* {notes}\n"
 
     return back
+
+
+async def _get_status_bar(user_id: str) -> str:
+    """
+    Generate status bar displaying the user's current preferences.
+    
+    Args:
+        user_id: The ID of the user
+        
+    Returns:
+        Formatted status bar string with Markdown formatting
+    """
+    user_service = _get_user_service()
+    user_prefs = user_service.get_user_preferences(user_id)
+    
+    # Get deck name if available
+    deck_name = "None"
+    if user_prefs.last_deck_id:
+        deck_service = _get_deck_service()
+        deck = deck_service.deck_repo.get(user_prefs.last_deck_id)
+        if deck:
+            deck_name = deck.name
+    
+    # Format language code to be more readable
+    language = user_prefs.last_language.upper()
+    
+    # Create status bar with divider
+    status_bar = f"📍 *Current Deck:* {deck_name} | *Language:* {language}\n" + "┄" * 30 + "\n\n"
+    return status_bar

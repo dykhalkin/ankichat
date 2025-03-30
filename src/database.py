@@ -11,7 +11,7 @@ import os
 import sqlite3
 from typing import Any, Dict, List, Optional, Union
 
-from src.models import Deck, Flashcard
+from src.models import Deck, Flashcard, UserPreferences
 
 logger = logging.getLogger("ankichat")
 
@@ -114,6 +114,20 @@ class Database:
             if "tags" not in columns:
                 logger.info("Adding tags column to flashcards table")
                 cursor.execute("ALTER TABLE flashcards ADD COLUMN tags TEXT")
+                
+            # Create user_preferences table
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_preferences (
+                    user_id TEXT PRIMARY KEY,
+                    last_deck_id TEXT,
+                    last_language TEXT,
+                    created_at timestamp NOT NULL,
+                    updated_at timestamp NOT NULL,
+                    FOREIGN KEY (last_deck_id) REFERENCES decks (id) ON DELETE SET NULL
+                )
+                """
+            )
 
             self.conn.commit()
             logger.info("Database tables created or already exist")
@@ -570,4 +584,90 @@ class Database:
             return cards
         except sqlite3.Error as e:
             logger.error(f"Error retrieving due flashcards: {e}")
+            raise
+            
+    # User Preferences CRUD operations
+    
+    def get_user_preferences(self, user_id: str) -> Optional[UserPreferences]:
+        """
+        Retrieve preferences for a user.
+        
+        Args:
+            user_id: The ID of the user
+            
+        Returns:
+            The UserPreferences object if found, None otherwise
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT * FROM user_preferences WHERE user_id = ?", (user_id,))
+            row = cursor.fetchone()
+            
+            if not row:
+                logger.info(f"No preferences found for user {user_id}")
+                return None
+                
+            prefs = UserPreferences(
+                user_id=row["user_id"],
+                last_deck_id=row["last_deck_id"],
+                last_language=row["last_language"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"]
+            )
+            
+            logger.info(f"Retrieved preferences for user {user_id}")
+            return prefs
+        except sqlite3.Error as e:
+            logger.error(f"Error retrieving user preferences: {e}")
+            raise
+            
+    def save_user_preferences(self, prefs: UserPreferences) -> UserPreferences:
+        """
+        Save or update user preferences.
+        
+        Args:
+            prefs: The UserPreferences object to save
+            
+        Returns:
+            The saved UserPreferences object with updated timestamps
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            # Update the updated_at timestamp
+            prefs.updated_at = datetime.datetime.now()
+            
+            # Check if preferences exist for this user
+            cursor.execute("SELECT 1 FROM user_preferences WHERE user_id = ?", (prefs.user_id,))
+            exists = cursor.fetchone() is not None
+            
+            if exists:
+                # Update existing preferences
+                cursor.execute(
+                    """
+                    UPDATE user_preferences
+                    SET last_deck_id = ?, last_language = ?, updated_at = ?
+                    WHERE user_id = ?
+                    """,
+                    (prefs.last_deck_id, prefs.last_language, prefs.updated_at, prefs.user_id)
+                )
+                logger.info(f"Updated preferences for user {prefs.user_id}")
+            else:
+                # Insert new preferences
+                cursor.execute(
+                    """
+                    INSERT INTO user_preferences
+                    (user_id, last_deck_id, last_language, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (prefs.user_id, prefs.last_deck_id, prefs.last_language, 
+                     prefs.created_at, prefs.updated_at)
+                )
+                logger.info(f"Created preferences for user {prefs.user_id}")
+                
+            self.conn.commit()
+            return prefs
+        except sqlite3.Error as e:
+            self.conn.rollback()
+            logger.error(f"Error saving user preferences: {e}")
             raise

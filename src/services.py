@@ -11,8 +11,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from config import settings
 from src.llm import LLMClient
-from src.models import Deck, Flashcard
-from src.repository import DeckRepository, FlashcardRepository
+from src.models import Deck, Flashcard, UserPreferences
+from src.repository import DeckRepository, FlashcardRepository, UserPreferencesRepository
 from src.training import FillInBlankTrainer, ReviewSession, TrainingMode
 
 logger = logging.getLogger("ankichat")
@@ -29,11 +29,16 @@ class FlashcardService:
     """
 
     def __init__(
-        self, flashcard_repo: FlashcardRepository, deck_repo: DeckRepository, llm_client: LLMClient
+        self, 
+        flashcard_repo: FlashcardRepository, 
+        deck_repo: DeckRepository, 
+        llm_client: LLMClient,
+        user_service: Optional["UserService"] = None
     ):
         self.flashcard_repo = flashcard_repo
         self.deck_repo = deck_repo
         self.llm_client = llm_client
+        self.user_service = user_service
         logger.info("FlashcardService initialized")
 
     async def process_new_card_text(self, text: str, user_id: str) -> Dict[str, Any]:
@@ -70,7 +75,7 @@ class FlashcardService:
         return preview
 
     async def create_flashcard_from_preview(
-        self, preview_id: str, deck_id: str, user_edits: Optional[Dict[str, Any]] = None
+        self, preview_id: str, deck_id: str, user_edits: Optional[Dict[str, Any]] = None, user_id: Optional[str] = None
     ) -> Flashcard:
         """
         Create a new flashcard from a preview.
@@ -79,6 +84,7 @@ class FlashcardService:
             preview_id: The ID of the preview to use
             deck_id: The ID of the deck to add the card to
             user_edits: Optional dictionary with user edits to the content
+            user_id: Optional user ID for storing preferences
 
         Returns:
             The created Flashcard object
@@ -113,6 +119,20 @@ class FlashcardService:
         # Save the card
         saved_card = self.flashcard_repo.create(card)
         logger.info(f"Created flashcard with ID: {saved_card.id} in deck: {deck_id}")
+        
+        # Store user preferences if UserService is available and user_id is provided
+        if self.user_service and user_id:
+            try:
+                # Update the last used deck and language in user preferences
+                self.user_service.update_preferences(
+                    user_id=user_id,
+                    last_deck_id=deck_id,
+                    last_language=card.language
+                )
+                logger.info(f"Updated user preferences for user {user_id} with deck {deck_id} and language {card.language}")
+            except Exception as e:
+                # Don't fail the card creation if preference update fails
+                logger.error(f"Error updating user preferences: {e}")
 
         return saved_card
 
@@ -153,10 +173,12 @@ class DeckService:
         deck_repo: DeckRepository,
         flashcard_repo: FlashcardRepository,
         llm_client: Optional[LLMClient] = None,
+        user_service: Optional["UserService"] = None,
     ):
         self.deck_repo = deck_repo
         self.flashcard_repo = flashcard_repo
         self.llm_client = llm_client
+        self.user_service = user_service
         logger.info("DeckService initialized")
 
     def get_user_decks(self, user_id: str) -> List[Deck]:
@@ -345,6 +367,62 @@ class DeckService:
         except Exception as e:
             logger.error(f"Error generating deck name suggestion: {e}")
             return "New Deck"
+
+
+class UserService:
+    """
+    Service for managing user preferences.
+    """
+    
+    def __init__(self, preferences_repo: UserPreferencesRepository):
+        """Initialize with repositories."""
+        self.preferences_repo = preferences_repo
+        logger.info("UserService initialized")
+    
+    def get_user_preferences(self, user_id: str) -> UserPreferences:
+        """
+        Get user preferences, creating default preferences if none exist.
+        
+        Args:
+            user_id: The ID of the user
+            
+        Returns:
+            The user's preferences
+        """
+        prefs = self.preferences_repo.get(user_id)
+        if not prefs:
+            # Create default preferences
+            prefs = UserPreferences(user_id=user_id)
+            self.preferences_repo.save(prefs)
+            logger.info(f"Created default preferences for user {user_id}")
+        return prefs
+        
+    def update_preferences(self, 
+                           user_id: str, 
+                           last_deck_id: Optional[str] = None,
+                           last_language: Optional[str] = None) -> UserPreferences:
+        """
+        Update user preferences.
+        
+        Args:
+            user_id: The ID of the user
+            last_deck_id: Optional deck ID to update
+            last_language: Optional language code to update
+            
+        Returns:
+            The updated preferences
+        """
+        prefs = self.get_user_preferences(user_id)
+        
+        if last_deck_id is not None:
+            prefs.last_deck_id = last_deck_id
+            
+        if last_language is not None:
+            prefs.last_language = last_language
+            
+        updated_prefs = self.preferences_repo.save(prefs)
+        logger.info(f"Updated preferences for user {user_id}")
+        return updated_prefs
 
 
 class ReviewService:
