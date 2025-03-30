@@ -65,6 +65,24 @@ from src.handlers import (  # Deck management handlers; Conversation states; Cal
     review_command,
     start_command,
 )
+from src.preference_handlers import (
+    ADD_LANG_PREFIX,
+    AWAITING_LEARNING_LANGUAGE_ACTION,
+    AWAITING_LEARNING_LANGUAGE_SELECTION,
+    AWAITING_NATIVE_LANGUAGE,
+    AWAITING_SETTINGS_ACTION,
+    BACK_PREFIX,
+    LANG_PREFIX,
+    REMOVE_LANG_PREFIX,
+    SETTING_PREFIX,
+    handle_learning_language_action,
+    handle_learning_language_selection,
+    handle_native_language_selection,
+    handle_settings_action,
+    learning_languages_command,
+    native_language_command,
+    settings_command,
+)
 
 logger = logging.getLogger("ankichat")
 
@@ -94,6 +112,9 @@ class AnkiChatBot:
         self.application.add_handler(CommandHandler("start", start_command))
         self.application.add_handler(CommandHandler("help", help_command))
 
+        # Register user preference handlers
+        self._register_user_preference_handlers()
+
         # Register a global callback query handler for direct text input flows
         # Using a pattern to filter based on our prefixes
         callback_pattern = lambda data: (
@@ -110,6 +131,9 @@ class AnkiChatBot:
             or data.startswith(DECK_MOVE_CARD_PREFIX)
             or data.startswith(DECK_LIST_PREFIX)
             or data.startswith(DECK_BACK_PREFIX)
+            or data.startswith(LANG_PREFIX)
+            or data.startswith(ADD_LANG_PREFIX)
+            or data.startswith(REMOVE_LANG_PREFIX)
         )
 
         direct_callback_handler = CallbackQueryHandler(
@@ -245,6 +269,71 @@ class AnkiChatBot:
         # Use high priority like the other conversation handlers
         self.application.add_handler(deck_management_handler, group=-10)
         logger.info("Deck management conversation handler registered")
+
+    def _register_user_preference_handlers(self):
+        """Register the conversation handlers for user preferences."""
+        # Native language handler
+        native_language_handler = ConversationHandler(
+            entry_points=[
+                CommandHandler("native", native_language_command),
+            ],
+            states={
+                AWAITING_NATIVE_LANGUAGE: [CallbackQueryHandler(handle_native_language_selection)],
+            },
+            fallbacks=[CommandHandler("cancel", cancel_command)],
+            name="native_language_settings",
+            persistent=False,
+            allow_reentry=True,
+            per_chat=True,
+        )
+
+        # Learning languages handler
+        learning_languages_handler = ConversationHandler(
+            entry_points=[
+                CommandHandler("learn", learning_languages_command),
+            ],
+            states={
+                AWAITING_LEARNING_LANGUAGE_ACTION: [
+                    CallbackQueryHandler(handle_learning_language_action)
+                ],
+                AWAITING_LEARNING_LANGUAGE_SELECTION: [
+                    CallbackQueryHandler(handle_learning_language_selection)
+                ],
+            },
+            fallbacks=[CommandHandler("cancel", cancel_command)],
+            name="learning_languages_settings",
+            persistent=False,
+            allow_reentry=True,
+            per_chat=True,
+        )
+
+        # Settings handler
+        settings_handler = ConversationHandler(
+            entry_points=[
+                CommandHandler("settings", settings_command),
+            ],
+            states={
+                AWAITING_SETTINGS_ACTION: [CallbackQueryHandler(handle_settings_action)],
+                AWAITING_NATIVE_LANGUAGE: [CallbackQueryHandler(handle_native_language_selection)],
+                AWAITING_LEARNING_LANGUAGE_ACTION: [
+                    CallbackQueryHandler(handle_learning_language_action)
+                ],
+                AWAITING_LEARNING_LANGUAGE_SELECTION: [
+                    CallbackQueryHandler(handle_learning_language_selection)
+                ],
+            },
+            fallbacks=[CommandHandler("cancel", cancel_command)],
+            name="settings",
+            persistent=False,
+            allow_reentry=True,
+            per_chat=True,
+        )
+
+        # Register all handlers with high priority
+        self.application.add_handler(native_language_handler, group=-10)
+        self.application.add_handler(learning_languages_handler, group=-10)
+        self.application.add_handler(settings_handler, group=-10)
+        logger.info("User preference handlers registered")
 
     async def _error_handler(self, update, context):
         """Log errors caused by updates."""

@@ -29,11 +29,11 @@ class FlashcardService:
     """
 
     def __init__(
-        self, 
-        flashcard_repo: FlashcardRepository, 
-        deck_repo: DeckRepository, 
+        self,
+        flashcard_repo: FlashcardRepository,
+        deck_repo: DeckRepository,
         llm_client: LLMClient,
-        user_service: Optional["UserService"] = None
+        user_service: Optional["UserService"] = None,
     ):
         self.flashcard_repo = flashcard_repo
         self.deck_repo = deck_repo
@@ -75,7 +75,11 @@ class FlashcardService:
         return preview
 
     async def create_flashcard_from_preview(
-        self, preview_id: str, deck_id: str, user_edits: Optional[Dict[str, Any]] = None, user_id: Optional[str] = None
+        self,
+        preview_id: str,
+        deck_id: str,
+        user_edits: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
     ) -> Flashcard:
         """
         Create a new flashcard from a preview.
@@ -119,17 +123,17 @@ class FlashcardService:
         # Save the card
         saved_card = self.flashcard_repo.create(card)
         logger.info(f"Created flashcard with ID: {saved_card.id} in deck: {deck_id}")
-        
+
         # Store user preferences if UserService is available and user_id is provided
         if self.user_service and user_id:
             try:
                 # Update the last used deck and language in user preferences
                 self.user_service.update_preferences(
-                    user_id=user_id,
-                    last_deck_id=deck_id,
-                    last_language=card.language
+                    user_id=user_id, last_deck_id=deck_id, last_language=card.language
                 )
-                logger.info(f"Updated user preferences for user {user_id} with deck {deck_id} and language {card.language}")
+                logger.info(
+                    f"Updated user preferences for user {user_id} with deck {deck_id} and language {card.language}"
+                )
             except Exception as e:
                 # Don't fail the card creation if preference update fails
                 logger.error(f"Error updating user preferences: {e}")
@@ -373,19 +377,19 @@ class UserService:
     """
     Service for managing user preferences.
     """
-    
+
     def __init__(self, preferences_repo: UserPreferencesRepository):
         """Initialize with repositories."""
         self.preferences_repo = preferences_repo
         logger.info("UserService initialized")
-    
+
     def get_user_preferences(self, user_id: str) -> UserPreferences:
         """
         Get user preferences, creating default preferences if none exist.
-        
+
         Args:
             user_id: The ID of the user
-            
+
         Returns:
             The user's preferences
         """
@@ -396,33 +400,100 @@ class UserService:
             self.preferences_repo.save(prefs)
             logger.info(f"Created default preferences for user {user_id}")
         return prefs
-        
-    def update_preferences(self, 
-                           user_id: str, 
-                           last_deck_id: Optional[str] = None,
-                           last_language: Optional[str] = None) -> UserPreferences:
+
+    def update_preferences(
+        self,
+        user_id: str,
+        last_deck_id: Optional[str] = None,
+        last_language: Optional[str] = None,
+        native_language: Optional[str] = None,
+        learning_languages: Optional[List[str]] = None,
+    ) -> UserPreferences:
         """
         Update user preferences.
-        
+
         Args:
             user_id: The ID of the user
             last_deck_id: Optional deck ID to update
             last_language: Optional language code to update
-            
+            native_language: Optional native language code to update
+            learning_languages: Optional list of language codes the user is learning
+
         Returns:
             The updated preferences
         """
         prefs = self.get_user_preferences(user_id)
-        
+
         if last_deck_id is not None:
             prefs.last_deck_id = last_deck_id
-            
+
         if last_language is not None:
             prefs.last_language = last_language
-            
+
+        if native_language is not None:
+            prefs.native_language = native_language
+
+        if learning_languages is not None:
+            prefs.learning_languages = learning_languages
+
         updated_prefs = self.preferences_repo.save(prefs)
         logger.info(f"Updated preferences for user {user_id}")
         return updated_prefs
+
+    def set_native_language(self, user_id: str, language_code: str) -> UserPreferences:
+        """
+        Set the user's native language.
+
+        Args:
+            user_id: The ID of the user
+            language_code: The language code (e.g., 'en', 'es', 'fr')
+
+        Returns:
+            The updated preferences
+        """
+        return self.update_preferences(user_id, native_language=language_code)
+
+    def add_learning_language(self, user_id: str, language_code: str) -> UserPreferences:
+        """
+        Add a language to the user's learning languages.
+
+        Args:
+            user_id: The ID of the user
+            language_code: The language code to add
+
+        Returns:
+            The updated preferences
+        """
+        prefs = self.get_user_preferences(user_id)
+
+        # Only add if not already in the list
+        if language_code not in prefs.learning_languages:
+            learning_languages = prefs.learning_languages.copy()
+            learning_languages.append(language_code)
+            return self.update_preferences(user_id, learning_languages=learning_languages)
+
+        return prefs
+
+    def remove_learning_language(self, user_id: str, language_code: str) -> UserPreferences:
+        """
+        Remove a language from the user's learning languages.
+
+        Args:
+            user_id: The ID of the user
+            language_code: The language code to remove
+
+        Returns:
+            The updated preferences
+        """
+        prefs = self.get_user_preferences(user_id)
+
+        # Make sure we have at least one language after removal
+        if language_code in prefs.learning_languages and len(prefs.learning_languages) > 1:
+            learning_languages = prefs.learning_languages.copy()
+            learning_languages.remove(language_code)
+            return self.update_preferences(user_id, learning_languages=learning_languages)
+
+        return prefs
 
 
 class ReviewService:

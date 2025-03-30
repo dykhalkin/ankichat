@@ -150,30 +150,37 @@ class Deck:
 class UserPreferences:
     """
     Represents user preferences.
-    
+
     Attributes:
         user_id: ID of the user
         last_deck_id: ID of the last used deck
         last_language: Last used language code
+        native_language: User's native language code
+        learning_languages: List of language codes the user is learning
         created_at: Timestamp when preferences were created
         updated_at: Timestamp when preferences were last updated
     """
+
     user_id: str
     last_deck_id: Optional[str] = None
     last_language: str = "en"
+    native_language: str = "en"
+    learning_languages: List[str] = field(default_factory=lambda: ["en"])
     created_at: datetime.datetime = field(default_factory=datetime.datetime.now)
     updated_at: datetime.datetime = field(default_factory=datetime.datetime.now)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert the preferences to a dictionary."""
         return {
             "user_id": self.user_id,
             "last_deck_id": self.last_deck_id,
             "last_language": self.last_language,
+            "native_language": self.native_language,
+            "learning_languages": self.learning_languages,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "UserPreferences":
         """Create a UserPreferences object from a dictionary."""
@@ -181,15 +188,20 @@ class UserPreferences:
         created_at = data.get("created_at")
         if created_at and isinstance(created_at, str):
             created_at = datetime.datetime.fromisoformat(created_at)
-            
+
         updated_at = data.get("updated_at")
         if updated_at and isinstance(updated_at, str):
             updated_at = datetime.datetime.fromisoformat(updated_at)
-            
+
+        # Get learning languages with default value if not present
+        learning_languages = data.get("learning_languages", ["en"])
+
         return cls(
             user_id=data["user_id"],
             last_deck_id=data.get("last_deck_id"),
             last_language=data.get("last_language", "en"),
+            native_language=data.get("native_language", "en"),
+            learning_languages=learning_languages,
             created_at=created_at or datetime.datetime.now(),
             updated_at=updated_at or datetime.datetime.now(),
         )
