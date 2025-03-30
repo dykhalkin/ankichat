@@ -1,14 +1,12 @@
 """Handlers for managing user preferences in the AnkiChat application."""
 
 import logging
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import cast
 
 from telegram import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackContext, ConversationHandler
 
 from src.handlers import _get_status_bar, _get_user_service
-from src.models import UserPreferences
-from src.services import UserService
 
 logger = logging.getLogger("ankichat")
 

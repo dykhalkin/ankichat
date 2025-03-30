@@ -226,8 +226,10 @@ async def test_process_card_text(mock_update, mock_context, mock_flashcard_servi
 
     # Check if the message was edited with the preview and inline keyboard
     processing_message.edit_text.assert_called_once()
+    # Check that the formatted message is included in the final message
+    # The actual message will include extra deck and user info
     call_args = processing_message.edit_text.call_args
-    assert call_args[0][0] == "Formatted message"
+    assert "Formatted message" in call_args[0][0]
     assert "reply_markup" in call_args[1]
     assert "parse_mode" in call_args[1]
 

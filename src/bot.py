@@ -117,24 +117,26 @@ class AnkiChatBot:
 
         # Register a global callback query handler for direct text input flows
         # Using a pattern to filter based on our prefixes
-        callback_pattern = lambda data: (
-            data.startswith(CONFIRM_PREFIX)
-            or data.startswith(EDIT_PREFIX)
-            or data.startswith(CANCEL_PREFIX)
-            or data.startswith(DECK_PREFIX)
-            or data.startswith(DECK_CREATE_PREFIX)
-            or data.startswith(DECK_RENAME_PREFIX)
-            or data.startswith(DECK_DELETE_PREFIX)
-            or data.startswith(DECK_CONFIRM_DELETE_PREFIX)
-            or data.startswith(DECK_CANCEL_DELETE_PREFIX)
-            or data.startswith(DECK_MANAGE_PREFIX)
-            or data.startswith(DECK_MOVE_CARD_PREFIX)
-            or data.startswith(DECK_LIST_PREFIX)
-            or data.startswith(DECK_BACK_PREFIX)
-            or data.startswith(LANG_PREFIX)
-            or data.startswith(ADD_LANG_PREFIX)
-            or data.startswith(REMOVE_LANG_PREFIX)
-        )
+        def callback_pattern(data):
+            """Filter callback data based on recognized prefixes."""
+            return (
+                data.startswith(CONFIRM_PREFIX)
+                or data.startswith(EDIT_PREFIX)
+                or data.startswith(CANCEL_PREFIX)
+                or data.startswith(DECK_PREFIX)
+                or data.startswith(DECK_CREATE_PREFIX)
+                or data.startswith(DECK_RENAME_PREFIX)
+                or data.startswith(DECK_DELETE_PREFIX)
+                or data.startswith(DECK_CONFIRM_DELETE_PREFIX)
+                or data.startswith(DECK_CANCEL_DELETE_PREFIX)
+                or data.startswith(DECK_MANAGE_PREFIX)
+                or data.startswith(DECK_MOVE_CARD_PREFIX)
+                or data.startswith(DECK_LIST_PREFIX)
+                or data.startswith(DECK_BACK_PREFIX)
+                or data.startswith(LANG_PREFIX)
+                or data.startswith(ADD_LANG_PREFIX)
+                or data.startswith(REMOVE_LANG_PREFIX)
+            )
 
         direct_callback_handler = CallbackQueryHandler(
             callback=handle_callback_for_direct_input, pattern=callback_pattern

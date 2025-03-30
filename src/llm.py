@@ -8,7 +8,7 @@ content generation for flashcards using OpenAI's API.
 import json
 import logging
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from openai import AsyncOpenAI
 
@@ -103,17 +103,26 @@ class LLMClient:
             # Default category if detection fails
             return "General Knowledge"
 
-    async def detect_language(self, text: str) -> Tuple[str, float]:
+    async def detect_language(
+        self,
+        keyword: str,
+        native_language: str,
+        learn_languages: List[str],
+        last_used_language: str,
+    ) -> Dict[str, Any]:
         """
         Detect the language of a given text using OpenAI.
 
         Args:
-            text: The text to analyze
+            keyword: The keyword to analyze
+            native_language: The native language of the user
+            learn_languages: The languages the user is learning
+            last_used_language: The language the user is currently using
 
         Returns:
             Tuple of (language_code, confidence)
         """
-        logger.debug(f"Detecting language for text: {text[:30]}...")
+        logger.debug(f"Detecting language for text: {keyword[:30]}...")
 
         # Check if client is available
         if not self.client:
@@ -121,18 +130,48 @@ class LLMClient:
             return "en", 1.0  # Default to English with high confidence
 
         try:
-            system_prompt = (
-                "You are a language detection expert. Your task is to analyze the input text "
-                "and determine the language it is written in. Return a JSON object with "
-                "fields: 'language_code' (ISO 639-1 two-letter code) and 'confidence' "
-                "(a float between 0 and 1 indicating your confidence level)."
-            )
+            system_prompt = f"""
+                    Your task is to create content for an Anki flashcard in an easy-to-remember format. You will receive input data, including a keyword, in a JSON object. For any given keyword, which can be any part of speech in any language, create an explanation in English, and provide synonyms in the given language where relevant.
+
+                    Consider the following details:
+                    - Focus on providing clear and concise explanations of the given keyword.
+                    - Identify synonyms or related terms in the given language if applicable, based on the context provided.
+                    - Explanation should be in easy-to-understand English or in a native language for complex cases.
+
+                    # Steps
+
+                    1. **Identify the language of origin**: Refer to the {native_language} and {learn_languages} fields from the JSON input to identify the source language of the given keyword.
+                    2. **Identify the target language**: Based on the {learn_languages}, pick the relevant target language with higher probability. If the source language is a native language to the user, then generate translation and explanation in {last_used_language}.
+                    3. **Understand the Keyword**: Determine the part of speech and context of the keyword, considering its language of origin.
+                    4. **Provide Explanation**: Create a brief yet comprehensive explanation that covers the meaning and usage of the keyword.
+                    5. **Identify Synonyms**: If appropriate, find and list one or more synonyms or related terms that fit the context in the given language.
+                    6. **Review and Refine**: Ensure that the explanation is clear and the synonyms are relevant.
+                    7. **Provide example of usage**: If it's relevant, provide the example of usage the given keyword.
+
+                    # Output Format
+
+                    Produce the output in the following JSON format:
+
+                    ```json
+                    {{
+                      "explanation": "A concise paragraph explaining the meaning and context of the keyword.",
+                      "synonyms": ["synonym1", "synonym2"],
+                      "example": "Example of usage of the given keyword in the target language.",
+                      "keyword": "The keyword itself. Refined, with the correct case and fixed any typos.",
+                      "language": "Language of origin in ISO-639-1 format"
+                    }}
+                    ```
+
+                    # Notes
+                    - Some keywords may not have direct synonyms; provide synonyms only if they truly fit the meaning and context.
+                    - Provide output in Markdown formatted text.
+                """
 
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": text},
+                    {"role": "user", "content": keyword},
                 ],
                 temperature=0.1,
                 max_tokens=150,
@@ -145,16 +184,12 @@ class LLMClient:
             # Extract JSON response
             result = json.loads(response.choices[0].message.content)
 
-            language_code = result.get("language_code", "en")
-            confidence = float(result.get("confidence", 0.5))
-
-            logger.info(f"Detected language: {language_code} with confidence {confidence}")
-            return language_code, confidence
+            return result
 
         except Exception as e:
-            logger.error(f"Error detecting language: {e}")
+            logger.error(f"Error generating flashcard content: {e}")
             # Default to English if detection fails
-            return "en", 0.0
+            return "Error generating flashcard content"
 
     async def generate_flashcard_content(self, word: str, language_code: str) -> Dict[str, Any]:
         """

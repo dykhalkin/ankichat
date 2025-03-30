@@ -310,7 +310,9 @@ async def _process_flashcard_input(update: Update, context: CallbackContext) -> 
 
         # Edit the processing message with the preview and status bar
         await processing_message.edit_text(
-            status_bar + message_text, reply_markup=reply_markup, parse_mode="Markdown"
+            status_bar + message_text,
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
         )
 
     except Exception as e:

@@ -58,37 +58,45 @@ def deck_service(mock_deck_repo, mock_flashcard_repo, mock_llm_client):
 @pytest.mark.asyncio
 async def test_process_new_card_text(flashcard_service, mock_llm_client):
     """Test processing user input for a new flashcard."""
-    # Configure mocks
-    mock_llm_client.detect_language.return_value = ("es", 0.87)
+    # Add user_service mock to flashcard_service
+    flashcard_service.user_service = MagicMock()
+    user_preferences = MagicMock()
+    user_preferences.native_language = "en"
+    user_preferences.learning_languages = ["es", "fr"]
+    user_preferences.last_language = "es"
+    flashcard_service.user_service.get_user_preferences.return_value = user_preferences
 
-    mock_llm_client.generate_flashcard_content.return_value = {
-        "word": "hola",
-        "language_code": "es",
-        "definition": "Hello or hi in Spanish",
-        "example_sentence": "¡Hola! ¿Cómo estás?",
-        "pronunciation_guide": "ˈo.la",
-        "part_of_speech": "interjection",
-        "notes": "Informal greeting",
+    # Configure mocks
+    mock_llm_client.detect_language.return_value = {
+        "language": "es",
+        "keyword": "hola",
+        "explanation": "Hello or hi in Spanish",
+        "example": "¡Hola! ¿Cómo estás?",
+        "synonyms": ["buenos días", "saludos"],
     }
 
     # Call the service
     result = await flashcard_service.process_new_card_text("hola", "user123")
 
     # Verify the LLM client was called correctly
-    mock_llm_client.detect_language.assert_called_once_with("hola")
-    mock_llm_client.generate_flashcard_content.assert_called_once_with("hola", "es")
+    mock_llm_client.detect_language.assert_called_once_with(
+        "hola",
+        user_preferences.native_language,
+        user_preferences.learning_languages,
+        user_preferences.last_language,
+    )
 
     # Check the result structure
     assert result["input_text"] == "hola"
     assert result["user_id"] == "user123"
     assert result["language"]["code"] == "es"
-    assert result["language"]["confidence"] == 0.87
+    assert result["language"]["confidence"] == 1
     assert "preview_id" in result
 
     # Check the content was passed through
-    assert result["content"]["word"] == "hola"
-    assert result["content"]["definition"] == "Hello or hi in Spanish"
-    assert result["content"]["example_sentence"] == "¡Hola! ¿Cómo estás?"
+    assert result["content"]["keyword"] == "hola"
+    assert result["content"]["explanation"] == "Hello or hi in Spanish"
+    assert result["content"]["example"] == "¡Hola! ¿Cómo estás?"
 
 
 @pytest.mark.asyncio
@@ -150,16 +158,26 @@ def test_format_preview_message(flashcard_service):
         "user_id": "user123",
         "language": {"code": "es", "confidence": 0.87},
         "content": {
-            "word": "hola",
-            "language_code": "es",
-            "definition": "Hello or hi in Spanish",
-            "example_sentence": "¡Hola! ¿Cómo estás?",
-            "pronunciation_guide": "ˈo.la",
-            "part_of_speech": "interjection",
-            "notes": "Informal greeting",
+            "keyword": "hola",
+            "language": "es",
+            "explanation": "Hello or hi in Spanish",
+            "example": "¡Hola! ¿Cómo estás?",
+            "synonyms": ["buenos días", "saludos"],
         },
         "preview_id": "preview123",
     }
+
+    # Add mock user_service
+    flashcard_service.user_service = MagicMock()
+    mock_prefs = MagicMock()
+    mock_prefs.last_deck_id = "deck123"
+    mock_prefs.native_language = "en"
+    mock_prefs.last_language = "es"
+    flashcard_service.user_service.get_user_preferences.return_value = mock_prefs
+
+    # Add mock deck
+    mock_deck = MagicMock(name="Spanish Vocabulary")
+    flashcard_service.deck_repo.get.return_value = mock_deck
 
     # Format the message
     message = flashcard_service.format_preview_message(preview)
@@ -167,12 +185,11 @@ def test_format_preview_message(flashcard_service):
     # Check the message contains all the content
     assert "Flashcard Preview" in message
     assert "hola" in message
-    assert "es (Confidence: 0.87)" in message
+    assert "es" in message
     assert "Hello or hi in Spanish" in message
     assert "¡Hola! ¿Cómo estás?" in message
-    assert "ˈo.la" in message
-    assert "interjection" in message
-    assert "Informal greeting" in message
+    # The synonyms are kept as a list in the formatted message
+    assert "['buenos días', 'saludos']" in message
 
 
 def test_get_user_decks(deck_service, mock_deck_repo):

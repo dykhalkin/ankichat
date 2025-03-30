@@ -33,18 +33,28 @@ async def test_detect_language(mock_async_openai):
     mock_response = MagicMock()
     mock_response.choices = [
         MagicMock(
-            message=MagicMock(content=json.dumps({"language_code": "fr", "confidence": 0.95}))
+            message=MagicMock(
+                content=json.dumps(
+                    {
+                        "language": "fr",
+                        "explanation": "French greeting",
+                        "synonyms": ["Salut"],
+                        "example": "Bonjour, comment allez-vous?",
+                        "keyword": "Bonjour",
+                    }
+                )
+            )
         )
     ]
     mock_async_openai.chat.completions.create.return_value = mock_response
 
     # Create client and test
     client = LLMClient(model="test-model")
-    language_code, confidence = await client.detect_language("Bonjour le monde")
+    result = await client.detect_language("Bonjour le monde", "en", ["fr", "es"], "fr")
 
     # Verify results
-    assert language_code == "fr"
-    assert confidence == 0.95
+    assert result["language"] == "fr"
+    assert result["keyword"] == "Bonjour"
 
     # Verify API was called correctly
     mock_async_openai.chat.completions.create.assert_called_once()
@@ -63,11 +73,10 @@ async def test_detect_language_error_handling(mock_async_openai):
 
     # Create client and test
     client = LLMClient()
-    language_code, confidence = await client.detect_language("Hello world")
+    result = await client.detect_language("Hello world", "en", ["es", "fr"], "es")
 
-    # Verify default values are returned on error
-    assert language_code == "en"
-    assert confidence == 0.0
+    # Verify error message is returned
+    assert result == "Error generating flashcard content"
 
 
 @pytest.mark.asyncio

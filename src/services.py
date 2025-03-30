@@ -56,18 +56,23 @@ class FlashcardService:
         """
         logger.info(f"Processing new card text: {text[:30]}...")
 
-        # Detect language of the input text
-        language_code, confidence = await self.llm_client.detect_language(text)
+        user_preferences = self.user_service.get_user_preferences(user_id)
+        card_content = await self.llm_client.detect_language(
+            text,
+            user_preferences.native_language,
+            user_preferences.learning_languages,
+            user_preferences.last_language,
+        )
 
         # Generate flashcard content
-        content = await self.llm_client.generate_flashcard_content(text, language_code)
+        # content = await self.llm_client.generate_flashcard_content(text, language_code)
 
         # Create preview object
         preview = {
             "input_text": text,
             "user_id": user_id,
-            "language": {"code": language_code, "confidence": confidence},
-            "content": content,
+            "language": {"code": card_content["language"], "confidence": 1},
+            "content": card_content,
             "preview_id": str(uuid.uuid4()),
         }
 
@@ -153,16 +158,41 @@ class FlashcardService:
         content = preview["content"]
         language_info = preview["language"]
 
+        # Get current deck, native and learning language information
+        user_id = preview.get("user_id")
+        current_deck = None
+        native_lang = "EN"  # Default
+        learning_lang = "EN"  # Default
+
+        if self.user_service and user_id:
+            try:
+                prefs = self.user_service.get_user_preferences(user_id)
+                if prefs.last_deck_id:
+                    deck = self.deck_repo.get(prefs.last_deck_id)
+                    current_deck = deck.name if deck else None
+                native_lang = prefs.native_language.upper() if prefs.native_language else "EN"
+                learning_lang = prefs.last_language.upper() if prefs.last_language else "EN"
+            except Exception as e:
+                logger.error(f"Error getting user preferences: {e}")
+
+        # Add user info header
+        deck_info = (
+            f"📍 *Current Deck:* {current_deck} | *Language:* {language_info['code'].upper()}\n"
+        )
+        user_info = f"👤 *Native:* {native_lang} | *Learning:* {learning_lang}\n"
+        separator = "┄" * 25 + "\n\n"
+
         # Format the message
         message = (
+            f"{deck_info}"
+            f"{user_info}"
+            f"{separator}"
             f"📝 *Flashcard Preview*\n\n"
-            f"*Word/Phrase:* {content['word']}\n"
-            f"*Language:* {language_info['code']} (Confidence: {language_info['confidence']:.2f})\n\n"
-            f"*Definition:* {content['definition']}\n\n"
-            f"*Example:* {content['example_sentence']}\n\n"
-            f"*Pronunciation:* {content['pronunciation_guide']}\n"
-            f"*Part of Speech:* {content['part_of_speech']}\n\n"
-            f"*Notes:* {content['notes']}\n\n"
+            f"*Word/Phrase:* {content['keyword']}\n"
+            f"*Language:* {language_info['code']}\n\n"
+            f"*Definition:* {content['explanation']}\n\n"
+            f"*Example:* {content['example']}\n\n"
+            f"*Synonyms:* {content.get('synonyms', ['None'])}\n\n"
             f"Would you like to save this flashcard or edit it first?"
         )
 
