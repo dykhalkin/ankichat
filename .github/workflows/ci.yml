@@ -80,7 +80,7 @@ jobs:
           SERVER_USER: ${{ vars.DEPLOY_USER }}
           APP_DIR: ${{ vars.APP_DIR }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          DB_PATH: ${{ secrets.DB_PATH || '/home/ankichat/data/ankichat.db' }}
+          DB_PATH: ${{ vars.DB_PATH }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL || 'INFO' }}
           LOG_FILE: ${{ vars.LOG_FILE || '/var/log/ankichat/app.log' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || '' }}
